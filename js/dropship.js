@@ -382,7 +382,7 @@ export function buildDropship() {
   const wings = [], pods = [];
   for (const s of [-1, 1]) {
     const sh = new THREE.Shape();
-    const pts = [[1.2, 1.1], [4.2, -0.5], [4.2, -2.4], [1.2, -2.35]].map(([x, y]) => [x * s, y]);
+    const pts = [[1.2, 1.1], [3.95, -0.4], [3.95, -2.3], [1.2, -2.35]].map(([x, y]) => [x * s, y]);
     sh.moveTo(...pts[0]); for (const p of pts.slice(1)) sh.lineTo(...p);
     const g = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 });
     g.rotateX(-Math.PI / 2);

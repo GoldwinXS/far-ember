@@ -201,6 +201,7 @@ export class View {
     const tanH = Math.tan((this.camera.fov * Math.PI) / 360) * this.camera.aspect;
     const at = s.look.clone().sub(s.eye).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan((frac - 0.5) * 2 * tanH)).add(s.eye);
     this.stationNow = s;
+    this.hemiGoal = s.fill;
     this.cine = { p: s.eye.clone(), t: at, speed: 1.7 };
     // a long move would glide through the dropship: cut instead
     if (instant || !this.cineCur || this.cineCur.p.distanceTo(s.eye) > 9) this.cineCur = { p: s.eye.clone(), t: at.clone() };
@@ -257,7 +258,7 @@ export class View {
     const key = map.biome === 'spire' ? 'spire' : time;
     let L = (map.biome === 'spire' ? LIGHTS[time === 'day' ? 'spireday' : time === 'night' ? 'spirenight' : 'spire'] : LIGHTS[key]) || LIGHTS.day;
     // the farm's soil went pink under an orange key and a blue fill: a yellower key and a neutral fill keep it ochre
-    if (map.biome === 'farm' && key === 'dusk') L = { ...L, sun: '#ffc874', env: 0.45, hemi: ['#6f7a80', '#4a4030', 0.4], grade: { ...L.grade, tint: [1.0, 1.0, 0.94] } };
+    if (map.biome === 'farm' && key === 'dusk') L = { ...L, sun: '#ffc874', env: 0.55, hemi: ['#6f7a80', '#4a4030', 0.62], grade: { ...L.grade, sat: L.grade.sat * 0.85, tint: [1.0, 1.0, 0.94] } };
     this.light = L;
     this.scene.environment = this.envCache.get(SKIES[key]) || null;
     this.hemi.color.set(L.hemi[0]);
@@ -304,7 +305,10 @@ export class View {
       // a few real lights spread across the map (the iPad budget); every lamp glows, and the
       // lamps without a real light paint a warm pool on the ground instead
       const all = w.lamps, budget = key === 'night' ? 5 : 3;
-      const lit = new Set(all.length <= budget ? all : Array.from({ length: budget }, (_, i) => all[Math.round((i * (all.length - 1)) / (budget - 1))]));
+      // the two lamps nearest the squad's start always get real lights (the opening view should be lit), the rest spread out
+      const sd = (p) => Math.hypot(p.x - map.w / 2, p.z - (map.h - 3));
+      const near = all.slice().sort((a, c) => sd(a) - sd(c)).slice(0, 2), rest = all.filter((p) => !near.includes(p)), n2 = budget - near.length;
+      const lit = new Set(all.length <= budget ? all : [...near, ...Array.from({ length: n2 }, (_, i) => rest[Math.round((i * (rest.length - 1)) / Math.max(1, n2 - 1))])]);
       const flat = (pos, r, color, opacity) => {
         const m = new THREE.Mesh(new THREE.PlaneGeometry(r * 2, r * 2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex(), color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false }));
         m.position.set(pos.x, 0.045, pos.z);
@@ -316,7 +320,8 @@ export class View {
           // floodlights throw a cone of cool white down the lane; street lamps a warm pool
           let l;
           if (p.flood) {
-            l = new THREE.SpotLight(map.biome === 'yard' ? '#ffc890' : '#fff1dc', key === 'night' ? 40 : 22, 16, 0.75, 0.6, 2);
+            const yard = map.biome === 'yard';
+            l = new THREE.SpotLight(yard ? '#ffb060' : '#fff1dc', key === 'night' ? (yard ? 90 : 40) : 22, yard ? 20 : 16, 0.75, 0.6, 2);
             l.target.position.copy(p.flood);
             this.world.add(l.target);
           } else l = new THREE.PointLight('#ffc27a', key === 'night' ? 16 : 8, 8, 2);
@@ -325,7 +330,7 @@ export class View {
           this.lamps.push(l);
         }
         // floodlights always paint their pool; street lamps only when they have no real light
-        if (p.flood || !lit.has(p)) flat(p.flood || p, p.flood ? 3.4 : 2.4, p.flood ? '#fff0d8' : '#ffb868', key === 'night' ? (p.flood && lit.has(p) ? 0.2 : 0.32) : 0.16);
+        if (p.flood || !lit.has(p)) flat(p.flood || p, p.flood ? 3.4 : 2.4, p.flood ? (map.biome === 'yard' ? '#ffb060' : '#fff0d8') : '#ffb868', key === 'night' ? (p.flood && lit.has(p) ? (map.biome === 'yard' ? 0.34 : 0.2) : 0.32) : 0.16);
         const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: p.flood ? (map.biome === 'yard' ? '#ffc070' : '#fff4e0') : '#ffcf8a', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.4 }));
         glow.position.copy(p);
         glow.scale.setScalar(p.flood ? 0.45 : 0.26);
@@ -355,8 +360,8 @@ export class View {
     // 25 degrees (all a close camera sees) to the zenith
     const sk = map.biome === 'spire' ? (time === 'night' ? 'night' : 'spire') : key;
     const zen = { day: '#5b7aa6', dusk: '#2b2d4a', night: '#070b16', spire: '#2a2240' }[sk] || '#5b7aa6';
-    const glow = { day: '#c9ccd2', dusk: '#c9805a', night: '#1c2438', spire: '#8a5a7a' }[sk] || '#c9ccd2';
-    const mid = { day: '#7f9cc4', dusk: '#6a4a5a', night: '#121a2c', spire: '#4a3450' }[sk] || '#7f9cc4';
+    const glow = { day: '#d4d2cc', dusk: '#c9805a', night: '#1c2438', spire: '#8a5a7a' }[sk] || '#d4d2cc';
+    const mid = { day: '#8fa8c8', dusk: '#a0604a', night: '#121a2c', spire: '#4a3450' }[sk] || '#8fa8c8';
     // the giant sits on the far side of the map: light it from the camera's side of the sun so it shows a lit face, not a crescent
     this.world.add(frontierSky(cx, cz, map.w, { sun: new THREE.Vector3(L.sunDir[0], L.sunDir[1], Math.abs(L.sunDir[2]) * 0.6 + 0.25).normalize(), sky: new THREE.Color(glow), haze: sk === 'day' ? 0.25 : 0.1, bright: sk === 'night' ? 0.3 : 1 }));
     this.skyDome = new THREE.Mesh(new THREE.SphereGeometry(195, 32, 16), new THREE.ShaderMaterial({
@@ -364,7 +369,7 @@ export class View {
       side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: `uniform vec3 uZen; uniform vec3 uHor; uniform vec3 uGlow; uniform vec3 uMid; varying vec3 vD;
-        void main(){ vec3 c = mix(uHor, uGlow, smoothstep(0.0, 0.05, vD.y)); c = mix(c, uMid, smoothstep(0.05, 0.42, vD.y)); c = mix(c, uZen, smoothstep(0.42, 0.9, vD.y)); gl_FragColor = vec4(c, 1.0);
+        void main(){ vec3 c = mix(uHor, uGlow, smoothstep(0.0, 0.02, vD.y)); c = mix(c, uMid, smoothstep(0.02, 0.21, vD.y)); c = mix(c, uZen, smoothstep(0.21, 0.7, vD.y)); gl_FragColor = vec4(c, 1.0);
           #include <colorspace_fragment>
         }`,
     }));
@@ -519,7 +524,7 @@ export class View {
       const p = a.clone().addScaledVector(dir, -2.5).addScaledVector(right, side);
       p.y = 1.75;
       if (this.camBlocked(p) || this.postInSight(p, b)) continue;
-      this.cine = { p, t: b.clone().setY(0.7) };
+      this.cine = { p, t: b.clone().setY(1.0) };
       this.skyOn(true);
       return;
     }
@@ -548,7 +553,7 @@ export class View {
     const dir = b.clone().sub(a).normalize();
     const p = a.clone().addScaledVector(dir, -2.5);
     p.y = 2.2;
-    if (this.camBlocked(p) || !this.clearView(p, b)) return;
+    if (this.camBlocked(p) || !this.clearView(p, b) || p.distanceTo(b) > 13) return;
     if (group && group.some((u) => { const q = new THREE.Vector3(u.x, 0, u.y); return !this.clearView(p, q) || q.clone().sub(p).setY(0).normalize().dot(dir) < 0.94; })) return;
     this.cine = { p, t: b.clone().setY(0.9) };
     this.skyOn(true);
@@ -965,10 +970,12 @@ export class View {
       grp.position.set(s.x, 0, s.y);
       const r = makeRng(s.x * 31 + s.y);
       for (let i = 0; i < 22; i++) {
-        const p = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex(), color: '#d5dadb', transparent: true, depthWrite: false, opacity: 0.5 }));
+        if (i >= 14) break;
+        const p = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeLitTex(), color: '#ffffff', transparent: true, depthWrite: false, opacity: 0 }));
         const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.5;
         p.position.set(Math.cos(a) * d, 0.3 + r() * 1.2, Math.sin(a) * d);
         p.scale.setScalar(1.2 + r() * 1.0);
+        p.userData.s0 = p.scale.x; p.userData.life = 7 + r() * 5;
         p.material.rotation = r() * 6;
         p.userData.base = p.position.y;
         p.userData.ph = r() * 6;
@@ -1446,7 +1453,18 @@ export class View {
     const r = this.rig(u);
     if (!r) return;
     if (on && !r.bubble) {
-      r.bubble = new THREE.Mesh(new THREE.SphereGeometry(r.height * 0.55, 20, 14), new THREE.MeshBasicMaterial({ color: '#b58cff', transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const rad = r.height * 0.55;
+      r.bubble = new THREE.Mesh(new THREE.SphereGeometry(rad, 32, 20), new THREE.ShaderMaterial({
+        uniforms: { uC: { value: new THREE.Color('#b58cff') }, uR: { value: rad } },
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        vertexShader: 'varying vec3 vN; varying vec3 vW; varying vec3 vO; void main(){ vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vO = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+        fragmentShader: `uniform vec3 uC; uniform float uR; varying vec3 vN; varying vec3 vW; varying vec3 vO;
+          void main(){ vec3 V = normalize(cameraPosition - vW); float f = 1.0 - abs(dot(normalize(vN), V));
+            float a = (0.05 + 0.45 * pow(f, 2.5)) * smoothstep(uR + 0.3, uR + 2.0, distance(cameraPosition, vO));
+            gl_FragColor = vec4(uC * a, a);
+            #include <colorspace_fragment>
+          }`,
+      }));
       r.bubble.position.y = r.height * 0.5;
       r.root.add(r.bubble);
     } else if (!on && r.bubble) {
@@ -1605,7 +1623,14 @@ export class View {
       }
     }
     if (this.cacheGroup && this.cacheGroup.userData.spin) { this.cacheGroup.userData.spin.rotation.y += dt; this.cacheGroup.userData.spin.position.y = 0.25 + Math.sin(this.time * 2) * 0.06; }
-    for (const grp of this.smokeGroups?.values() || []) for (const p of grp.children) { p.position.y = p.userData.base + Math.sin(this.time * 0.8 + p.userData.ph) * 0.12; p.material.rotation += dt * 0.05; }
+    for (const grp of this.smokeGroups?.values() || []) for (const p of grp.children) {
+      const L = p.userData.life, k = ((this.time + p.userData.ph * L) % L) / L;
+      p.position.y = 0.25 + k * 1.7;
+      p.scale.setScalar(p.userData.s0 * (0.7 + k * 0.7));
+      p.material.opacity = 0.42 * Math.sin(k * Math.PI);
+      p.material.rotation += dt * 0.05;
+    }
+    if (this.carrier && this.hemiGoal) this.hemi.intensity += (this.hemiGoal - this.hemi.intensity) * Math.min(1, dt * 3);
     this.updateRoofs(dt);
     for (const o of this.objMeshes.values()) for (const ch of o.children) if (ch.userData.spin) ch.rotation.y += dt * ch.userData.spin;
     // drop to fast rendering if the device cannot keep up (about 22 fps for 4 seconds)
@@ -1644,7 +1669,7 @@ export class View {
         return false;
       });
       // a roof in the way thins to a ghost; it only goes when someone is inside or the camera is close
-      const target = occupied || close ? 0 : hides ? 0.45 : 1;
+      const target = occupied || close || hides ? 0 : 1;
       R.fade += (target - R.fade) * Math.min(1, dt * 6);
       for (const m of R.mats) { m.opacity = R.fade; m.depthWrite = R.fade > 0.95; }
       R.roof.visible = R.fade > 0.02;
@@ -1783,7 +1808,7 @@ function frontierSky(cx, cz, size, look) {
   // about 13 degrees wide, centred 4.5 degrees up: it rises out of the horizon haze, disc and ring under the top of a close camera
   const GR = 19, R0 = GR * 1.23, R1 = GR * 1.92;
   const giant = new THREE.Mesh(new THREE.SphereGeometry(GR, 64, 32));
-  giant.position.set(cx + 18, 13, cz - far * 0.95);
+  giant.position.set(cx + 18, 11, cz - far * 0.95);
   giant.rotation.set(0.2, 0, 0.32);
   const ring = new THREE.Mesh(new THREE.RingGeometry(R0, R1, 128, 1));
   giant.add(ring);

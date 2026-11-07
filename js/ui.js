@@ -27,6 +27,9 @@ export class UI {
   // ============================================================ battle HUD
   attach(battle) {
     this.b = battle;
+    this.pops?.querySelectorAll('.bark').forEach((e) => e.remove());
+    this.barkAt = new Map();
+    this.barkAny = 0;
     this.screen.hidden = true;
     this.hud.hidden = false;
     this.labels.innerHTML = '';

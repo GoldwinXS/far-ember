@@ -20,10 +20,10 @@ const EMBLEM = ['M60 5 L107 29 L100 87 L60 115 L20 87 L13 29 Z', 'M60 24 L67 53 
 // (the menus fill the left half on a wide screen), plus a slow sway for the wide shot.
 export const STATIONS = {
   title: { eye: [-10.5, 4.2, 16.5], look: [0, 2, -2], x: 0.92, drift: 0.4 },
-  ops: { eye: [3.7, 2.5, -4.6], look: [8.2, 1.5, -9.4], x: 0.7 },
-  armoury: { eye: [4.0, 1.75, 11.0], look: [10.6, 1.2, 6.4], x: 0.7 },
-  memorial: { eye: [3.0, 1.9, 10.6], look: [6.6, 2.4, 17.6], x: 0.68 },
-  squad: { eye: [4.3, 1.05, 12.9], look: [0.35, 1.3, 6.1], x: 0.74 },
+  ops: { eye: [3.7, 2.5, -4.6], look: [8.2, 1.5, -9.4], x: 0.7, fill: 3.0 },
+  armoury: { eye: [4.0, 1.75, 11.0], look: [10.6, 1.2, 6.4], x: 0.7, fill: 2.6 },
+  memorial: { eye: [3.0, 1.9, 10.6], look: [6.6, 2.4, 17.6], x: 0.68, fill: 2.3 },
+  squad: { eye: [4.3, 1.05, 12.9], look: [0.35, 1.55, 6.1], x: 0.74, fill: 1.4 },
   soldier: { eye: [1.75, 1.0, 9.4], look: [0.35, 0.78, 6.3], x: 0.72 },
 };
 export const LINE_Z = 6.3;
@@ -592,7 +592,7 @@ export function buildCarrier(view) {
     root.add(sp);
     candles.push(sp);
   }
-  const memLight = new THREE.PointLight('#ffb070', 24, 13, 1.6);
+  const memLight = new THREE.PointLight('#ffb070', 32, 14, 1.5);
   memLight.position.set(6.6, 2.4, L / 2 - 2.2);
   root.add(memLight);
 
@@ -617,7 +617,7 @@ export function buildCarrier(view) {
   armLight.position.set(W / 2 - 4.2, 6.8, 7.0);
   armLight.target.position.set(W / 2 - 1.2, 1.0, 7.1);
   root.add(armLight, armLight.target);
-  const armFill = new THREE.PointLight('#ffd9b0', 10, 9, 1.6);
+  const armFill = new THREE.PointLight('#ffd9b0', 26, 10, 1.5);
   armFill.position.set(W / 2 - 2.4, 3.4, 4.0);
   root.add(armFill);
   const sign = (() => {
@@ -720,7 +720,7 @@ export function buildCarrier(view) {
   b.add(B(3.15, 1.62, 0.08), M.dark, 8.82 + Math.sin(-0.59) * -0.06, 2.65, -12.25 + Math.cos(-0.59) * -0.06, -0.59);
   b.add(B(0.12, 1.9, 0.12), M.dark, 8.82 + Math.sin(-0.59) * -0.1, 0.95, -12.25 + Math.cos(-0.59) * -0.1, -0.59);
   b.add(B(0.2, 2.9, 5.5), M.dark, W / 2 - 0.05, 3.0, -10.2);
-  const holoLight = new THREE.PointLight('#58e0ff', 12, 9, 1.8);
+  const holoLight = new THREE.PointLight('#58e0ff', 22, 13, 1.5);
   holoLight.position.set(8.2, 2.2, -9.4);
   root.add(holoLight);
 
@@ -819,7 +819,7 @@ export function buildCarrier(view) {
   root.add(ship.root);
 
   const stations = {};
-  for (const [k, s] of Object.entries(STATIONS)) stations[k] = { eye: new THREE.Vector3(...s.eye), look: new THREE.Vector3(...s.look), x: s.x, drift: s.drift || 0 };
+  for (const [k, s] of Object.entries(STATIONS)) stations[k] = { eye: new THREE.Vector3(...s.eye), look: new THREE.Vector3(...s.look), x: s.x, drift: s.drift || 0, fill: s.fill || 1.15 };
 
   let memKey = '';
   const carrier = {
@@ -858,7 +858,7 @@ export function buildCarrier(view) {
         bc.halo.material.opacity = 0.3 + k * 0.7;
       }
       for (const [i, c] of candles.entries()) c.material.opacity = 0.65 + Math.sin(t * (7 + i) + i * 3) * 0.1 + Math.random() * 0.12;
-      memLight.intensity = 23 + Math.random() * 2;
+      memLight.intensity = 31 + Math.random() * 2;
       for (let i = 0; i < N; i++) {
         for (let k = 0; k < 3; k++) {
           let v = dpos[i * 3 + k] + dvel[i * 3 + k] * dt;

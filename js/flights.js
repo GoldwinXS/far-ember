@@ -80,11 +80,13 @@ export async function flightOut(app) {
     if (!puffed && k > 0.05) { puffed = true; dust(view, SHIP_AT.x, SHIP_AT.z, 10, 1.6); }
   });
   // nose round to the door, engines swing back, and out through the field toward the planet
-  cam(view, [8.5, 3.6, -13.5], [0, 2.5, -2], 3);
+  cam(view, [8.5, 5.0, -13.5], [0, 2.5, -2], 3);
   await tl.step(0.9, (k) => { ship.setTilt(ease(k)); ship.setThrust(0.85 + k * 0.15); });
   app.sfx.evac?.();
-  await tl.step(2.6, (k) => {
+  const camFrom = view.cine.p.clone(), camTo = new THREE.Vector3(7.5, 3.4, -27);
+  await tl.step(3.4, (k) => {
     const e = easeIn(k);
+    view.cine.p.lerpVectors(camFrom, camTo, ease(Math.min(1, k * 1.3)));
     ship.root.position.z = SHIP_AT.z - e * 70;
     ship.root.position.y = SHIP_AT.y + 2.4 - easeIn(Math.max(0, (k - 0.45) / 0.55)) * 14;
     ship.body.rotation.x = -0.25 * easeIn(Math.max(0, (k - 0.45) / 0.55));

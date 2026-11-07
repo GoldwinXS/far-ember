@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // The customisation palettes. Index 0 of each is the default.
 export const PALETTE = {
-  armour: [['Bone', '#bab5a8'], ['Ash', '#8e949c'], ['Navy', '#34486b'], ['Olive', '#67714d'], ['Sand', '#bba27b'], ['Ember', '#c8652d'], ['Crimson', '#8c302d'], ['Night', '#2d3036']],
+  armour: [['Bone', '#a29d90'], ['Ash', '#8e949c'], ['Navy', '#34486b'], ['Olive', '#67714d'], ['Sand', '#bba27b'], ['Ember', '#c8652d'], ['Crimson', '#8c302d'], ['Night', '#2d3036']],
   trim: [['Ember', '#ff7a2e'], ['Gold', '#d9a743'], ['White', '#d2cfc6'], ['Teal', '#2fb3b8'], ['Red', '#c7372f'], ['Navy', '#24355a'], ['Black', '#1d1f23'], ['Olive', '#515c39']],
   suit: [['Charcoal', '#4c5057'], ['Navy', '#3a4864'], ['Olive', '#4f5540'], ['Brown', '#5a4f42'], ['Grey', '#7e8288']],
   visor: [['Ember', '#ff8a3d'], ['Teal', '#5ae0ff'], ['Green', '#8cff6a'], ['Red', '#ff4a4a'], ['Gold', '#ffcf5a'], ['White', '#e8f0ff']],
@@ -372,8 +372,9 @@ function fitHelmet(verts, fwd) {
     const foot = new THREE.CylinderGeometry(0.007, 0.0095, 0.03, 10).translate(0, 0.012, 0).applyQuaternion(q).translate(base.x, base.y, base.z);
     return mergeGeometries([rod, foot]);
   })();
-  const rearAt = (() => { const a = Math.PI, ph = phiAt(a, top - 0.088 * H); return { q: point(ph, a, TH + 0.009), n: dirOf(ph, a) }; })();
-  const rear = new THREE.BoxGeometry(0.056, 0.034, 0.02).lookAt(rearAt.n).translate(rearAt.q.x, rearAt.q.y, rearAt.q.z);
+  // the comm box sits on the left side above the ear (on the back it read as a face)
+  const rearAt = (() => { const a = -Math.PI / 2 - 0.45, ph = phiAt(a, top - 0.058 * H); return { q: point(ph, a, TH + 0.008), n: dirOf(ph, a) }; })();
+  const rear = new THREE.BoxGeometry(0.03, 0.04, 0.02).lookAt(rearAt.n).translate(rearAt.q.x, rearAt.q.y, rearAt.q.z);
   const rl = rearAt.q.clone().addScaledVector(rearAt.n, 0.011).addScaledVector(up, 0.007).addScaledVector(right, 0.016);
   const rearLight = new THREE.SphereGeometry(0.0045, 8, 6).translate(rl.x, rl.y, rl.z);
   return { shell: shellGeo, visor: vg, strip: sg, crest, ears, earCaps, aerial, rear, rearLight, spotterAt: side, centre: C, right, fwd, up };
@@ -452,7 +453,7 @@ function armourMat(rim) {
 // Dress a soldier: plates on their bones, the helmet on the head. Returns a handle to repaint them.
 export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
   const bone = (n) => model.getObjectByName(P + n);
-  const main = armourMat(rim), clsMat = armourMat(rim), shMat = armourMat(rim), shClsMat = armourMat(rim), backMat = armourMat(rim);
+  const main = armourMat(rim), clsMat = armourMat(rim), shMat = armourMat(rim), shClsMat = armourMat(rim), backMat = armourMat(rim), helmMat = armourMat(rim);
   const visorMat = new THREE.MeshStandardMaterial({ color: '#0a0f15', roughness: 0.06, metalness: 0.85, envMapIntensity: 1.6 });
   const stripMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
   const meshes = [];
@@ -466,19 +467,18 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
   for (const p of fit.plates) put(p.geo, p.id === 'back' ? backMat : /^shoulder/.test(p.id) ? (p.cls ? shClsMat : shMat) : p.cls ? clsMat : main, p.at);
   let crest = null, spotter = null;
   if (fit.helmet) {
-    put(fit.helmet.shell, main, 'Head');
+    put(fit.helmet.shell, helmMat, 'Head');
     put(fit.helmet.visor, visorMat, 'Head');
     put(fit.helmet.strip, stripMat, 'Head').castShadow = false;
-    crest = put(fit.helmet.crest, main, 'Head');
+    crest = put(fit.helmet.crest, helmMat, 'Head');
     const gear = new THREE.MeshStandardMaterial({ color: '#1e2126', roughness: 0.4, metalness: 0.7 });
     spotter = put(fit.helmet.spotter, gear, 'Head');
     put(fit.helmet.aerial, gear, 'Head');
     put(fit.helmet.rear, gear, 'Head');
-    put(fit.helmet.rearLight, stripMat, 'Head').castShadow = false;
-    put(fit.helmet.ears, main, 'Head');
+    put(fit.helmet.ears, helmMat, 'Head');
   }
   const handle = {
-    meshes, main, clsMat, shMat, shClsMat, backMat, visorMat, stripMat,
+    meshes, main, clsMat, shMat, shClsMat, backMat, helmMat, visorMat, stripMat,
     paint(k) {
       const c = kitColours(k);
       main.userData.uniforms.uArmour.value.set(c.armour);
@@ -494,6 +494,10 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
         m.userData.uniforms.uTrim.value.set(tr);
         m.userData.uniforms.uPattern.value = m === shClsMat ? 0 : c.pattern;
       }
+      // the helmet leans to gunmetal, so it never reads as a white ball
+      helmMat.userData.uniforms.uArmour.value.set('#43474c').lerp(new THREE.Color(c.armour), 0.15);
+      helmMat.userData.uniforms.uTrim.value.set(c.trim);
+      helmMat.userData.uniforms.uPattern.value = c.pattern;
       backMat.userData.uniforms.uArmour.value.set('#3a3d42');
       backMat.userData.uniforms.uTrim.value.set(c.trim);
       backMat.userData.uniforms.uPattern.value = 2;

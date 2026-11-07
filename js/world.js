@@ -9,6 +9,7 @@ import { buildContainer, buildFloodMast, buildCrystals, buildHay, buildBale, gra
 export const WS = 1 / 1.44; // metres to tiles
 const WALL_H = 2.05;
 const WALL_T = 0.36;
+const YARD_GOLD = new THREE.Color(1.35, 1.15, 0.7); // the port's dry scrub, brighter than the leaf recolour alone
 
 // ------------------------------------------------------------ small helpers
 const matCache = new Map();
@@ -355,10 +356,10 @@ function glowCanvas(map) {
 // ------------------------------------------------------------ buildings
 const STYLE = {
   // colony prefabs: cast panels, ribbed metal and navy plate, low metal roofs, dark frames and orange doors
-  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'metal_plate_02', roofColor: '#7f8893', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
-  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'metal_plate_02', roofColor: '#7f8893', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
-  blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'metal_plate_02', roofColor: '#8c949e', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
-  barn: { wall: 'weathered_planks', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#b04a35' },
+  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'metal_plate_02', roofColor: '#9aa2ab', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'metal_plate_02', roofColor: '#9aa2ab', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'metal_plate_02', roofColor: '#a2aab3', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
+  barn: { wall: 'weathered_planks', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#c05a40' },
   shed: { wall: 'concrete_block_wall', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#8a8a84', door: '#5a6066', pitch: 0.5 },
   metal: { wall: 'painted_metal_shutter', wallColor: '#8d98a4', roof: 'rusty_corrugated_iron', roofColor: '#7d8288', floor: 'concrete_floor_02', trim: '#a8822e', door: '#28313c', pitch: 0.45 },
 };
@@ -435,7 +436,8 @@ function gableGeometry(x0, x1, z0, z1, h, rise, alongX, inset) {
 function buildBuilding(parent, map, b, rng, isNight) {
   const st = STYLE[b.style] || STYLE.brick;
   const wallM = pbr(st.wall, { color: st.wallColor || '#ffffff' });
-  const trimM = plain(st.trim === '#ff7a2e' ? '#c8642a' : st.trim, { rough: 0.7 });
+  // colony frames are painted metal with grime from the shutter scan, not flat orange plastic
+  const trimM = st.trim === '#ff7a2e' ? pbr('painted_metal_shutter', { color: '#c4733f', rough: 0.85, metal: 0.2 }) : plain(st.trim, { rough: 0.7 });
   const plinthM = pbr('concrete_floor_02', { color: '#b9b5aa' });
   const glassM = plain('#1c2630', { rough: 0.05, metal: 0.1, opacity: 0.62, env: 1.6 });
   const litM = plain('#ffcf8a', { glow: '#ffb35c', gi: 1.6, rough: 0.5 });
@@ -537,6 +539,12 @@ function buildBuilding(parent, map, b, rng, isNight) {
   const floor = new THREE.Mesh(wbox(x0, x1, 0, 0.03, y0, y1, 1.4), floorM);
   floor.receiveShadow = true;
   parent.add(floor);
+  const capM = plain('#2a2624', { rough: 0.9 });
+  const c0 = WALL_H - 0.02, c1 = WALL_H + 0.06, e = t + 0.02;
+  batch.add(capM, wbox(x0 - e, x1 + e, c0, c1, y0 - e, y0 + e));
+  batch.add(capM, wbox(x0 - e, x1 + e, c0, c1, y1 - e, y1 + e));
+  batch.add(capM, wbox(x0 - e, x0 + e, c0, c1, y0 + e, y1 - e));
+  batch.add(capM, wbox(x1 - e, x1 + e, c0, c1, y0 + e, y1 - e));
   batch.build(parent);
   // roof (fades when someone is inside); tall houses get an upper floor that fades with it
   const upper = b.tall ? 1.85 : 0;
@@ -645,8 +653,8 @@ const out_trees = [];
 // take it fully. One shared colour, set per mission, so cached plant materials follow whichever world is loaded.
 const VEG = {
   town: { color: '#5f8f84', amount: 0.32, mask: [0, 0, 1, 0], leaf: '#3fa595' },
-  farm: { color: '#7a6c94', amount: 0.0, mask: [1, 0, 0, 1], leaf: '#7258a0' },
-  yard: { color: '#a89a5a', amount: 0.25, mask: [0, 0, 0, 0], leaf: '#c9a040' },
+  farm: { color: '#857c64', amount: 0.35, mask: [1, 1, 0, 1], leaf: '#7258a0' },
+  yard: { color: '#b8913a', amount: 0.5, mask: [0, 0, 1, 0], leaf: '#c08a1c' }, // the port's dirt patches are gold dust
 };
 const LEAF = { color: { value: new THREE.Color('#ffffff') }, amount: { value: 0 } };
 // (tracked by object: a cloned material copies userData but not its shader hook, so it needs its own)
@@ -1013,7 +1021,7 @@ function dress(parent, map, rng, biome, night, out) {
     }
   }
   const clutter = {
-    town: [['metal_trash_can', 0.55], ['power_box_01', 0.5], ['utility_box_01', 0.6], ['utility_box_02', 0.6], ['ammo_box', 0.3], ['plastic_crate_01', 0.3]],
+    town: [['metal_trash_can', 0.55], ['power_box_01', 0.5], ['utility_box_01', 0.6], ['utility_box_02', 0.6], ['ammo_box', 0.3]],
     farm: [['tree_stump_01', 0.6], ['dead_tree_trunk', 1.2], ['wooden_barrels_01', 0.7], ['portable_generator', 0.55], ['wooden_crate_02', 0.5]],
     yard: [['ammo_box', 0.3], ['portable_generator', 0.55], ['power_box_01', 0.5], ['plastic_crate_01', 0.3], ['old_military_crate', 0.6], ['concrete_road_barrier', 0.9]],
     spire: [['boulder_01', 0.45]],
@@ -1030,10 +1038,6 @@ function dress(parent, map, rng, biome, night, out) {
     if (it) placed++;
   }
   // manholes on roads
-  if (biome === 'town') for (let i = 0; i < 40; i++) {
-    const x = Math.floor(rng() * map.w), y = Math.floor(rng() * map.h);
-    if (T(x, y) === 'road' && rng() < 0.2) place(parent, 'water_manhole_cover', x + (rng() - 0.5) * 0.4, y + (rng() - 0.5) * 0.4, { fitW: 0.5, y: 0.002 });
-  }
   // a security light over every outside door
   for (const b of map.buildings || []) {
     if (!variants('security_light').length) break;
@@ -1113,15 +1117,18 @@ function dress(parent, map, rng, biome, night, out) {
         if (biome === 'yard') {
           // the port: gold scrub at the foot of containers, walls and barriers
           const nb = DIR4.find(([dx, dy]) => map.inside(x + dx, y + dy) && map.objAt(x + dx, y + dy));
-          if (nb && free(x, y) && T(x, y) !== 'road' && rng() < 0.3) {
-            const cx = x + nb[0] * 0.38, cz = y + nb[1] * 0.38;
-            for (let k = 5 + Math.floor(rng() * 5); k > 0; k--) {
+          if (nb && free(x, y) && T(x, y) !== 'road' && rng() < 0.45) {
+            // in the open tile, just off the object (props and containers overhang their tiles)
+            const cx = x - nb[0] * 0.12, cz = y - nb[1] * 0.12;
+            for (let k = 9 + Math.floor(rng() * 6); k > 0; k--) {
               const vi = Math.floor(rng() * vs.length), sz = vs[vi].size;
-              const sy = (0.18 + rng() * 0.22) / Math.max(0.04, sz.y);
-              const sw = Math.min(sy, 0.4 / Math.max(0.02, sz.x, sz.z));
+              const sy = (0.3 + rng() * 0.32) / Math.max(0.04, sz.y);
+              const sw = Math.min(sy, 0.55 / Math.max(0.02, sz.x, sz.z));
               q.setFromAxisAngle(up, rng() * 6.28);
-              const px = cx + (nb[1] ? (rng() - 0.5) * 0.8 : (rng() - 0.5) * 0.15), pz = cz + (nb[0] ? (rng() - 0.5) * 0.8 : (rng() - 0.5) * 0.15);
-              lists[vi].push(m4.clone().compose(new THREE.Vector3(px, 0, pz), q, new THREE.Vector3(sw, sy, sw)));
+              const px = cx + (nb[1] ? (rng() - 0.5) * 0.9 : (rng() - 0.5) * 0.35), pz = cz + (nb[0] ? (rng() - 0.5) * 0.9 : (rng() - 0.5) * 0.35);
+              const mt = m4.clone().compose(new THREE.Vector3(px, 0, pz), q, new THREE.Vector3(sw, sy, sw));
+              mt.tint = YARD_GOLD;
+              lists[vi].push(mt);
             }
           }
           continue;
