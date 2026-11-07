@@ -1,0 +1,40 @@
+{
+ "sfx": {
+  "blaster": 5,
+  "blasterHeavy": 5,
+  "alienShot": 5,
+  "explosion": 5,
+  "boomLow": 2,
+  "hitArmour": 5,
+  "hitFlesh": 5,
+  "ricochet": 5,
+  "debris": 5,
+  "shield": 5,
+  "step": 5,
+  "doorOpen": 3,
+  "doorClose": 3,
+  "computer": 4,
+  "engine": 2,
+  "thruster": 5,
+  "uiClick": 4,
+  "uiSelect": 4,
+  "uiConfirm": 4,
+  "uiBack": 4,
+  "uiOpen": 4,
+  "uiError": 4,
+  "uiTick": 2,
+  "uiSwitch": 5,
+  "jingleWin": 2,
+  "jingleLose": 2,
+  "jingleRank": 1
+ },
+ "music": [
+  "sting",
+  "base",
+  "carrier",
+  "battle",
+  "tension",
+  "final",
+  "spire"
+ ]
+}
