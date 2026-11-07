@@ -248,6 +248,8 @@ for (int i = 0; i < 4; i++) {
   wsum += w;
 }
 gAlb = accA / max(wsum, 1e-5); gArm = accR / max(wsum, 1e-5); gNor = accN / max(wsum, 1e-5);
+float gbn = texture(tNoise, gp * 0.11).r * 0.6 + texture(tNoise, gp * 0.035).r * 0.4;
+gAlb.rgb *= (0.74 + 0.52 * gbn) * vec3(1.0 + 0.12 * (gbn - 0.5), 1.0, 1.0 - 0.14 * (gbn - 0.5));
 float macro = texture(tNoise, gp * 0.031).r;
 gAlb.rgb *= mix(0.8, 1.14, macro) * uTint;
 vec4 ov = texture(tOverlay, gSuv);
@@ -539,7 +541,7 @@ function buildBuilding(parent, map, b, rng, isNight) {
   const floor = new THREE.Mesh(wbox(x0, x1, 0, 0.03, y0, y1, 1.4), floorM);
   floor.receiveShadow = true;
   parent.add(floor);
-  const capM = plain('#4a423c', { rough: 0.9 });
+  const capM = pbr('concrete_floor_02', { color: '#a8a39a' });
   const c0 = WALL_H - 0.02, c1 = WALL_H + 0.06, e = t + 0.02;
   batch.add(capM, wbox(x0 - e, x1 + e, c0, c1, y0 - e, y0 + e));
   batch.add(capM, wbox(x0 - e, x1 + e, c0, c1, y1 - e, y1 + e));
@@ -549,7 +551,7 @@ function buildBuilding(parent, map, b, rng, isNight) {
   // roof (fades when someone is inside); tall houses get an upper floor that fades with it
   const upper = b.tall ? 1.85 : 0;
   const rf = roofFor(x0 - t, x1 + t, y0 - t, y1 + t, WALL_H + 0.07 + upper, st.pitch * 0.6, 0.34);
-  const roofMat = weather(pbr(st.roof, { side: THREE.DoubleSide, color: st.roofColor || (b.style === 'barn' ? '#9a8f84' : '#ffffff') }).clone());
+  const roofMat = weather(pbr(st.roof, { side: THREE.DoubleSide, color: st.roofColor || (b.style === 'barn' ? '#9a8f84' : '#ffffff') }).clone(), 2.2);
   roofMat.transparent = true;
   const gableMat = weather(wallM.clone());
   gableMat.transparent = true;
@@ -661,7 +663,7 @@ const LEAF = { color: { value: new THREE.Color('#ffffff') }, amount: { value: 0 
 const foliage = new WeakSet();
 const weathered = new WeakSet();
 // Broad grime (about 2 m patches) and soft vertical streaks, from world position, on walls and roofs.
-function weather(m) {
+function weather(m, k = 1) {
   if (weathered.has(m)) return m;
   weathered.add(m);
   const prev = m.onBeforeCompile;
@@ -675,11 +677,11 @@ function weather(m) {
       float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(wh(i), wh(i + vec2(1.0, 0.0)), f.x), mix(wh(i + vec2(0.0, 1.0)), wh(i + vec2(1.0, 1.0)), f.x), f.y); }`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-        float wg = wn(vWw.xz * 0.5 + vWw.y * 0.17) * 0.6 + wn(vWw.xz * 1.7 - vWw.y * 0.4) * 0.4;
+        float wg = wn(vWw.xz * 0.9 + vWw.y * 0.3) * 0.55 + wn(vWw.xz * 2.6 - vWw.y * 0.7) * 0.45;
         float ws = wn(vec2((vWw.x + vWw.z) * 2.6, vWw.y * 0.22));
-        diffuseColor.rgb *= (0.66 + 0.55 * wg) * (1.0 - 0.28 * smoothstep(0.58, 0.9, ws)) * mix(0.7, 1.0, smoothstep(0.0, 0.55, vWw.y));`);
+        diffuseColor.rgb *= mix(1.0, (0.58 + 0.7 * wg) * (1.0 - 0.32 * smoothstep(0.55, 0.88, ws)), ${k.toFixed(2)}) * mix(0.62, 1.0, smoothstep(0.25, 0.9, vWw.y));`);
   };
-  m.customProgramCacheKey = () => 'weather' + (prev ? '-x' : '');
+  m.customProgramCacheKey = () => 'weather' + k + (prev ? '-x' : '');
   m.needsUpdate = true;
   return m;
 }

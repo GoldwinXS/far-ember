@@ -659,9 +659,11 @@ export class Battle {
         // no clear low shot: cut straight to the group from above, pulled back far enough to hold all of them
         const spread = Math.max(...members.map((m) => dist(m, mid)));
         if (this.view.cine === before) {
-          const d = Math.max(11.5, Math.min(18, 10 + spread * 1.6));
+          let d = Math.max(12, Math.min(22, 2 + spread * 3.6));
           const yaw = (this.view.goal.yaw = this.view.clearYaw(mid, members, d));
-          this.view.focus(mid.x - Math.sin(yaw) * 2.2, mid.y - Math.cos(yaw) * 2.2, { instant: true, dist: d });
+          // houses round the named group lose their roofs for the reveal, so nothing named sits under one
+          this.view.revealCut = { x: mid.x, z: mid.y, r: 2.5 + spread, until: this.view.time + 2.6 };
+          this.view.focus(mid.x, mid.y, { instant: true, dist: d });
         }
         this.ui.banner('Enemies spotted', members.map((m) => m.name).join(', '));
         if (near) this.ui.bark?.(near, 'spotted');

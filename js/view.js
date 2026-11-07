@@ -15,7 +15,7 @@ import { buildCarrier, loadHangar, hangarEnv } from './carrier.js';
 const LIGHTS = {
   day: { sunDir: [-0.7, 0.62, 0.42], sun: '#fff1de', sunI: 3.2, env: 0.75, exp: 0.95, fog: '#aebccb', fogNear: 30, fogFar: 85, rim: 0.1, hemi: ['#cfe0ff', '#5a5040', 0.25], grade: { sat: 1.05, contrast: 1.06, tint: [1.0, 0.995, 0.985], vig: 0.3, bloom: 0.22, lift: 0.035 } },
   dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32, lift: 0.045 } },
-  night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55, lift: 0.065 } },
+  night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 1.25, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.5], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55, lift: 0.065 } },
   spireday: { sunDir: [-0.5, 0.75, -0.4], sun: '#f4f0ff', sunI: 2.8, env: 0.8, exp: 1.22, fog: '#6a7088', fogNear: 26, fogFar: 72, rim: 0.12, hemi: ['#c8c0ff', '#3a3248', 0.45], grade: { sat: 0.95, contrast: 1.08, tint: [0.97, 0.99, 1.03], vig: 0.34, bloom: 0.28, lift: 0.045 } },
   spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55, lift: 0.045 } },
   spire: { sunDir: [-0.45, 0.42, -0.7], sun: '#ffd4b0', sunI: 2.6, env: 0.6, exp: 0.9, fog: '#3d3647', fogNear: 24, fogFar: 70, rim: 0.18, hemi: ['#c0b8ff', '#201828', 0.25], grade: { sat: 1.0, contrast: 1.1, tint: [0.98, 0.98, 1.04], vig: 0.4, bloom: 0.3, lift: 0.045 } },
@@ -282,7 +282,7 @@ export class View {
     this.fillLight.position.set(cx - d.x * 40, 14, cz - d.z * 40);
     this.fillLight.target.position.set(cx, 0, cz);
     this.fillLight.color.set(key === 'night' ? '#8fa4d8' : '#ffb27a');
-    this.fillLight.intensity = { day: 0.25, dusk: map.biome === 'farm' ? 0.75 : 0.5, night: 0.32, spire: 0.3 }[key] ?? 0.3;
+    this.fillLight.intensity = { day: 0.25, dusk: map.biome === 'farm' ? 0.75 : 0.5, night: 0.8, spire: 0.3 }[key] ?? 0.3;
     const sc = this.sun.shadow.camera;
     const ext = map.w * 0.8;
     sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 110;
@@ -415,6 +415,7 @@ export class View {
     this.rigs.clear();
     this.objMeshes.clear();
     this.fx = [];
+    this.smokeLive = 0;
     this.smokeGroups = new Map();
     this.evacGroup = null;
     this.cacheGroup = null;
@@ -513,6 +514,7 @@ export class View {
 
   // ------------------------------------------------------------ camera
   focus(x, y, opts = {}) {
+    if (opts.instant) this.roofSnap = true;
     this.goal.tx = x;
     this.goal.tz = y;
     if (opts.dist) this.goal.dist = opts.dist;
@@ -558,6 +560,8 @@ export class View {
     const a = new THREE.Vector3(from.x, 0, from.y), b = new THREE.Vector3(to.x, 0, to.y);
     const dir = b.clone().sub(a).normalize();
     const right = new THREE.Vector3(-dir.z, 0, dir.x);
+    const beyond = b.clone().addScaledVector(dir, 7);
+    if (this.map && !this.map.inside(Math.round(beyond.x), Math.round(beyond.z))) return;
     // right shoulder first, then the left, then wider: skip any spot with a wall behind it or a post in the sight line
     for (const side of [0.95, -0.95, 1.35, -1.35]) {
       const p = a.clone().addScaledVector(dir, -2.5).addScaledVector(right, side);
@@ -1276,14 +1280,17 @@ export class View {
     this.flash.intensity = 140;
     this.flash.distance = 12;
     this.shake = 0.6;
-    const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ffffff', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: new THREE.Color('#ffc870').multiplyScalar(2.2), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    core.renderOrder = 3;
+    core.userData.noAO = true;
     core.position.set(x, 0.7, y);
     core.scale.setScalar(radius * 2);
     this.fxRoot.add(core);
     const cs = this.time;
     this.fx.push(() => {
-      const k = (this.time - cs) / 0.1;
-      core.material.opacity = Math.max(0, 1 - k);
+      const k = (this.time - cs) / 0.3;
+      core.material.opacity = Math.max(0, k < 0.17 ? 1 : 1 - (k - 0.17) / 0.83);
+      core.scale.setScalar(1.4 + k * 0.5);
       if (k >= 1) { core.removeFromParent(); core.material.dispose(); return false; }
       return true;
     });
@@ -1307,6 +1314,7 @@ export class View {
         tex.offset.set((f % 4) * 0.25, 0.75 - Math.floor(f / 4) * 0.25);
         s.scale.setScalar(size * (0.5 + 0.5 * Math.min(1, k * 4)));
         s.position.y += dt * (0.6 + k * 1.4);
+        s.position.y = Math.max(s.position.y, s.scale.x * 0.4);
         const heat = Math.max(0, 1 - k * 1.7);
         s.material.color.setRGB(1 + 1.5 * heat, 1 + 1.15 * heat, 1 + 0.8 * heat);
         s.material.opacity = k > 0.75 ? Math.max(0, 1 - (k - 0.75) / 0.25) : 1;
@@ -1378,6 +1386,8 @@ export class View {
     this.world.add(s);
     const born = this.time + delay;
     const v = drift.clone();
+    this.smokeLive = (this.smokeLive || 0) + 1;
+    s.userData.smokeCount = true;
     this.fx.push((dt) => {
       const t = this.time - born;
       if (t < 0) return true;
@@ -1388,7 +1398,7 @@ export class View {
       s.scale.setScalar(size * (0.6 + Math.sqrt(k) * 1.9));
       s.position.y = Math.max(s.position.y, s.scale.x * 0.36);
       s.material.opacity = (k < 0.06 ? k / 0.06 : Math.pow(1 - k, 0.8)) * 0.42;
-      if (k >= 1) { s.removeFromParent(); s.material.dispose(); return false; }
+      if (k >= 1) { s.removeFromParent(); s.material.dispose(); this.smokeLive--; return false; }
       return true;
     });
   }
@@ -1679,6 +1689,17 @@ export class View {
       p.material.rotation += dt * 0.05;
     }
     if (this.carrier && this.hemiGoal) this.hemi.intensity += (this.hemiGoal - this.hemi.intensity) * Math.min(1, dt * 3);
+    if (this.fillLight.intensity > 0 && !this.carrier) {
+      const cp = this.camera.position, lt = this.cine ? this.cine.t : v3.set(c.tx, 0, c.tz);
+      this.fillLight.target.position.copy(lt);
+      const hx = cp.x - lt.x, hz = cp.z - lt.z, hl = Math.hypot(hx, hz) || 1;
+      this.fillLight.position.set(lt.x + (hx / hl) * 40, lt.y + 18, lt.z + (hz / hl) * 40);
+    }
+    if (this.post && this.post.ao) {
+      const smoky = (this.smokeLive || 0) > 0;
+      this.post.ao.blendIntensity += ((smoky ? 0 : 0.9) - this.post.ao.blendIntensity) * Math.min(1, dt * 5);
+      this.post.ao.enabled = this.quality === 'high' && this.post.ao.blendIntensity > 0.03;
+    }
     this.updateRoofs(dt);
     for (const o of this.objMeshes.values()) for (const ch of o.children) if (ch.userData.spin) ch.rotation.y += dt * ch.userData.spin;
     // drop to fast rendering if the device cannot keep up (about 22 fps for 4 seconds)
@@ -1705,10 +1726,14 @@ export class View {
     const ref = tgt || new THREE.Vector3(this.cam.tx, 0, this.cam.tz);
     const seen = tgt ? [tgt] : [];
     for (const r of this.rigs.values()) if (r.root.visible && !r.corpse && Math.hypot(r.root.position.x - ref.x, r.root.position.z - ref.z) < 7) seen.push(r.root.position);
+    const snap = this.roofSnap;
+    this.roofSnap = false;
     for (const R of this.roofs) {
       const b = R.b;
       const occupied = inside.some((p) => p.x > b.x0 - 0.3 && p.x < b.x0 + b.w - 0.7 && p.z > b.y0 - 0.3 && p.z < b.y0 + b.h - 0.7);
-      const near = close && Math.hypot(b.x0 + b.w / 2 - ref.x, b.y0 + b.h / 2 - ref.z) < 6;
+      const rc = this.revealCut && this.time < this.revealCut.until ? this.revealCut : null;
+      const near = (close && Math.hypot(b.x0 + b.w / 2 - ref.x, b.y0 + b.h / 2 - ref.z) < 6)
+        || (rc && Math.hypot(b.x0 + b.w / 2 - 0.5 - rc.x, b.y0 + b.h / 2 - 0.5 - rc.z) < rc.r + Math.max(b.w, b.h) / 2);
       // under the real gable: eaves low at the sides, the ridge along the long axis
       const S = R.shape, alongX = S && S.x1 - S.x0 >= S.z1 - S.z0, half = S && (alongX ? S.z1 - S.z0 : S.x1 - S.x0) / 2;
       const under = (x, y, z) => x > S.x0 - S.oh && x < S.x1 + S.oh && z > S.z0 - S.oh && z < S.z1 + S.oh
@@ -1719,7 +1744,7 @@ export class View {
       });
       // a roof in the way thins to a ghost; it only goes when someone is inside or the camera is close
       const target = occupied || near || hides ? 0 : 1;
-      R.fade += (target - R.fade) * Math.min(1, dt * 6);
+      R.fade = snap ? target : R.fade + (target - R.fade) * Math.min(1, dt * 6);
       for (const m of R.mats) { m.opacity = R.fade; m.depthWrite = R.fade > 0.95; }
       R.roof.visible = R.fade > 0.02;
       R.roof.traverse((o) => { if (o.isMesh) o.castShadow = R.fade > 0.5; });

@@ -453,7 +453,7 @@ export function buildDropship() {
     body.add(fin);
     add(g, M.panel, 0, 0, 0, fin);
     add(new THREE.BoxGeometry(0.14, 0.1, 1.05), M.ember, 0, 0.93, 3.78, fin, false);
-    const strobe = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ffffff', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    const strobe = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: new THREE.Color('#ffffff').multiplyScalar(3), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
     strobe.position.set(0, 1.0, 4.25);
     fin.add(strobe);
     strobes.push(strobe);
@@ -511,7 +511,7 @@ export function buildDropship() {
       }
       for (const g of belly) g.material.color.setRGB(1, 0.6, 0.35).multiplyScalar(0.15 + th * (1 - this.tilt_k) * 3 * (0.9 + Math.random() * 0.2));
       const blink = (t % 1.6) < 0.08;
-      for (const s of strobes) { s.material.opacity = blink ? 1 : 0; s.scale.setScalar(blink ? (th > 0.05 ? 0.7 : 0.3) : 0.01); }
+      for (const s of strobes) { s.material.opacity = blink ? 1 : 0; s.scale.setScalar(blink ? (th > 0.05 ? 0.4 : 0.14) : 0.01); }
     },
   };
   greebles(body, secs, M);

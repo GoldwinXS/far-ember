@@ -92,6 +92,15 @@ export async function flightOut(app) {
     ship.body.rotation.x = -0.25 * easeIn(Math.max(0, (k - 0.45) / 0.55));
     view.cine.t.lerp(ship.root.position.clone().setY(ship.root.position.y + 1.4), 0.18);
   });
+  // out in space: the camera falls in behind the ship as it dives toward the planet
+  const s0 = ship.root.position.clone(), c0 = view.cine.p.clone();
+  await tl.step(2.4, (k) => {
+    const e = ease(k);
+    ship.root.position.set(s0.x + e * 4, s0.y - e * 16, s0.z - e * 40);
+    ship.body.rotation.x = -0.25 - e * 0.2;
+    view.cine.p.lerpVectors(c0, ship.root.position.clone().add(new THREE.Vector3(5, 6, 16)), ease(Math.min(1, k * 1.6)));
+    view.cine.t.lerp(ship.root.position.clone().add(new THREE.Vector3(0, -6, -20)), 0.12);
+  });
   tl.done();
 }
 

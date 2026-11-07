@@ -109,7 +109,7 @@ function shell(NU, NV, pts, th, paint, closedV = false) {
   for (let i = 0; i <= NU; i++) for (let j = 0; j <= NV; j++) {
     outer.push(...pts(i, j, th)); inner.push(...pts(i, j, 0));
     // uv measures distance from the plate's edges (a closed helmet only has its lower rim, and no seam lines)
-    uvs.push(j / NV, closedV ? 0.75 + (0.25 * i) / NU : i / NU); pa.push(...paint(i, j));
+    uvs.push(closedV ? 0.5 : j / NV, closedV ? 0.75 + (0.25 * i) / NU : i / NU); pa.push(...paint(i, j));
   }
   const idx = [];
   for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
@@ -355,6 +355,14 @@ function fitHelmet(verts, fwd) {
     for (const y of [sMid + 0.0028 * H, sMid - 0.0028 * H]) { const q = point(phiAt(a, y), a, TH + 0.004); spos.push(q.x, q.y, q.z); }
   }
   for (let j = 0; j < BN; j++) { const a = j * 2; bidx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); sidx2.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  const lpos = [], lidx = [];
+  for (let j = 0; j <= NV; j++) {
+    const a = -Math.PI + (2 * Math.PI * j) / NV;
+    for (const [f, l] of [[0.86, TH + 0.002], [0.975, TH + 0.022], [1.0, TH + 0.02]]) { const q = point(edge[j] * f, a, l); lpos.push(q.x, q.y, q.z); }
+  }
+  for (let j = 0; j < NV; j++) for (let r = 0; r < 2; r++) { const a = j * 3 + r, b = a + 3; lidx.push(a, b, a + 1, a + 1, b, b + 1); }
+  let lip = mkg(lpos, lidx);
+  if (!outward(lip)) lip = mkg(lpos, flip(lidx));
   let band = mkg(bpos, bidx), bandSlit = mkg(spos, sidx2);
   if (!outward(band)) band = mkg(bpos, flip(bidx));
   if (!outward(bandSlit)) bandSlit = mkg(spos, flip(sidx2));
@@ -388,7 +396,7 @@ function fitHelmet(verts, fwd) {
   const rear = new THREE.BoxGeometry(0.03, 0.04, 0.02).lookAt(rearAt.n).translate(rearAt.q.x, rearAt.q.y, rearAt.q.z);
   const rl = rearAt.q.clone().addScaledVector(rearAt.n, 0.011).addScaledVector(up, 0.007).addScaledVector(right, 0.016);
   const rearLight = new THREE.SphereGeometry(0.0045, 8, 6).translate(rl.x, rl.y, rl.z);
-  return { shell: shellGeo, visor: vg, strip: sg, band, bandSlit, crest, ears, earCaps, aerial, rear, rearLight, spotterAt: side, centre: C, right, fwd, up };
+  return { shell: shellGeo, visor: vg, strip: sg, band, bandSlit, lip, crest, ears, earCaps, aerial, rear, rearLight, spotterAt: side, centre: C, right, fwd, up };
 }
 
 // Fit (or fetch) the armour for this body. model must be posed (the idle at time 0) and its world matrices current.
@@ -411,7 +419,7 @@ export function fitBody(key, model, P = 'mixamorig') {
   const h = bone('Head') && fitHelmet(verts, fwd);
   if (h) {
     const inv = bone('Head').matrixWorld.clone().invert();
-    for (const k of ['shell', 'visor', 'strip', 'band', 'bandSlit', 'crest', 'ears', 'earCaps', 'aerial', 'rear', 'rearLight']) h[k].applyMatrix4(inv);
+    for (const k of ['shell', 'visor', 'strip', 'band', 'bandSlit', 'lip', 'crest', 'ears', 'earCaps', 'aerial', 'rear', 'rearLight']) h[k].applyMatrix4(inv);
     // the rangefinder: a small housing and lens on the right side
     const s = h.spotterAt;
     const box = new THREE.BoxGeometry(0.026, 0.03, 0.055).lookAt(h.fwd).translate(s.x, s.y, s.z);
@@ -486,6 +494,7 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
     put(fit.helmet.visor, visorMat, 'Head');
     put(fit.helmet.strip, stripMat, 'Head').castShadow = false;
     put(fit.helmet.band, visorMat, 'Head');
+    put(fit.helmet.lip, new THREE.MeshStandardMaterial({ color: '#8c929a', roughness: 0.32, metalness: 0.65, envMapIntensity: 1.0 }), 'Head');
     put(fit.helmet.bandSlit, stripMat, 'Head').castShadow = false;
     crest = put(fit.helmet.crest, new THREE.MeshStandardMaterial({ color: '#3a3e43', roughness: 0.55, metalness: 0.3 }), 'Head');
     const gear = new THREE.MeshStandardMaterial({ color: '#1e2126', roughness: 0.4, metalness: 0.7 });
