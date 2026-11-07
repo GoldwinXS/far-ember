@@ -38,6 +38,40 @@ function addRim(m, u, head) {
   if (head) m.customProgramCacheKey = () => `cut${head.axis}${head.cut.toFixed(4)}`;
 }
 
+// The body's vest carries a drag handle and two hoses that loop over the shoulder blades; under the armour they
+// read as handles or headphones from behind. Drop those small parts (found by connectivity, by where they sit in
+// the rest pose) once per shared geometry.
+const stripped = new WeakSet();
+function stripBackLoops(geo) {
+  if (stripped.has(geo) || !geo.index) return;
+  stripped.add(geo);
+  const pos = geo.attributes.position, idx = geo.index, n = pos.count;
+  const par = new Int32Array(n);
+  for (let i = 0; i < n; i++) par[i] = i;
+  const find = (x) => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const uni = (a, b) => { a = find(a); b = find(b); if (a !== b) par[b] = a; };
+  for (let t = 0; t < idx.count; t += 3) { uni(idx.getX(t), idx.getX(t + 1)); uni(idx.getX(t), idx.getX(t + 2)); }
+  const seen = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = `${Math.round(pos.getX(i) * 1000)},${Math.round(pos.getY(i) * 1000)},${Math.round(pos.getZ(i) * 1000)}`;
+    const o = seen.get(k);
+    if (o === undefined) seen.set(k, i); else uni(o, i);
+  }
+  const box = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i), y = pos.getY(i), z = pos.getZ(i);
+    const b = box.get(r) || [Infinity, -Infinity, Infinity, -Infinity];
+    b[0] = Math.min(b[0], y); b[1] = Math.max(b[1], y); b[2] = Math.min(b[2], z); b[3] = Math.max(b[3], z);
+    box.set(r, b);
+  }
+  const drop = new Set();
+  for (const [r, [y0, y1, z0, z1]] of box) if (z0 < -0.1 && z1 < -0.1 && y0 > 1.33 && y1 < 1.52) drop.add(r);
+  if (!drop.size) return;
+  const keep = [];
+  for (let t = 0; t < idx.count; t += 3) if (!drop.has(find(idx.getX(t)))) keep.push(idx.getX(t), idx.getX(t + 1), idx.getX(t + 2));
+  geo.setIndex(keep);
+}
+
 let gunMat = null;
 function prepGun(src, alien) {
   const g = src.scene.clone(true);
@@ -195,6 +229,7 @@ export function makeCharacter(u, chars) {
   const src = body && chars[body];
   if (!src) return null;
   const model = SkeletonUtils.clone(src.scene);
+  if (u.side === 'ember') model.traverse((o) => { if (o.isSkinnedMesh && /body1/.test(o.material.name)) stripBackLoops(o.geometry); });
   const squad = u.side === 'ember';
   let head = null;
   if (squad) {
@@ -354,6 +389,7 @@ function clipFor(rig, pose) {
 }
 
 export function setBase(rig, pose, fade = 0.3) {
+  if (rig.dying) return; // a body on the ground stays there
   if (rig.crouched && pose === 'idle' && clipFor(rig, 'crouch')) pose = 'crouch';
   if (rig.crouched && pose === 'aim' && clipFor(rig, 'crouchAim')) pose = 'crouchAim';
   const name = clipFor(rig, pose);
@@ -384,6 +420,7 @@ function crossTo(rig, name, fade, loop) {
 
 // Play a clip once, then return to the base state. Resolves when the clip is done (or after maxT).
 export function playOnce(rig, pose, opts = {}) {
+  if (rig.dying && pose !== 'death') return Promise.resolve();
   let name = clipFor(rig, rig.crouched && pose === 'hit' ? 'hitCrouch' : rig.crouched && pose === 'death' ? 'deathCrouch' : pose);
   if (!name) return Promise.resolve();
   const act = crossTo(rig, name, opts.fade ?? 0.18, false);

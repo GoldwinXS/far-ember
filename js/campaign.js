@@ -80,13 +80,14 @@ export function makeOffers(camp) {
   const biomes = rng.shuffle(['town', 'farm', 'yard', rng.pick(['town', 'farm', 'yard'])]);
   const diffs = rng.shuffle([1, 2, 3]);
   const strikeSlot = camp.round % 3 === 0 ? rng.int(0, 2) : -1;
+  const used = new Set();
   return [0, 1, 2].map((i) => {
     const type = rng() < 0.55 ? 'sweep' : 'recover';
     const strike = i === strikeSlot;
     const diff = strike ? 3 : diffs[i];
     return {
       id: `m${camp.round}${i}`,
-      name: `Operation ${rng.pick(OP_WORDS_A)} ${rng.pick(OP_WORDS_B)}`,
+      name: (() => { let n; do n = `Operation ${rng.pick(OP_WORDS_A)} ${rng.pick(OP_WORDS_B)}`; while (used.has(n)); used.add(n); return n; })(),
       biome: biomes[i], type, diff, strike,
       reward: 50 + diff * 30 + rng.int(0, 4) * 5 + (type === 'recover' ? 25 : 0) + (strike ? 30 : 0),
       seed: rng.int(1, 1e8),

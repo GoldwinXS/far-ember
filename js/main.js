@@ -166,6 +166,9 @@ class App {
       const u = { id: 'l' + i + kind, side: 'ember', kind, x: 0.35 + (col - (cnt - 1) / 2) * 1.05 + row * 0.5, y: LINE_Z - row * 0.95 + (col % 2) * 0.12, slot: typeof s === 'string' ? i : (s.look ?? i) % 4, kit: typeof s === 'string' ? null : s.kit };
       this.view.addUnit(u);
       this.view.face(u, 4.6 + (u.x - 0.35) * 0.3, LINE_Z + 8);
+      // a quarter turn to their right, so the rifle held across the body points at the floor ahead, not into the next soldier
+      const r = this.view.rig(u);
+      if (r) r.targetYaw -= 0.75;
       ids.push(u.id);
     });
     this.dio.units = ids;

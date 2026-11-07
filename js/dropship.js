@@ -289,7 +289,7 @@ function hullMaterials() {
     duct: new THREE.MeshStandardMaterial({ color: '#24262a', roughness: 0.6, metalness: 0.5, side: THREE.BackSide }),
     heat: new THREE.MeshStandardMaterial({ color: '#545a66', roughness: 0.35, metalness: 0.85 }),
     fan: new THREE.MeshStandardMaterial({ color: '#3a3d42', roughness: 0.4, metalness: 0.9 }),
-    podPanel: Object.assign(panel.clone(), { side: THREE.DoubleSide }),
+    podPanel: panel.clone(),
     warmGlow: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffd6a8').multiplyScalar(1.6) }),
     seat: new THREE.MeshStandardMaterial({ color: '#2c3138', roughness: 0.8 }),
     rubber: new THREE.MeshStandardMaterial({ color: '#16181b', roughness: 0.7 }),
@@ -393,8 +393,9 @@ export function buildDropship() {
     const pivot = new THREE.Group();
     pivot.position.set(s * 4.45, 1.98, 1.25);
     body.add(pivot);
-    const prof = [[0.33, 1.2], [0.37, 1.28], [0.42, 1.27], [0.5, 1.16], [0.56, 0.9], [0.56, -0.55], [0.5, -0.95], [0.43, -1.22], [0.36, -1.24]].map(([r, y]) => new THREE.Vector2(r, y));
+    const prof = [[0.33, 1.2], [0.37, 1.28], [0.42, 1.27], [0.5, 1.16], [0.56, 0.9], [0.56, -0.55], [0.5, -0.95], [0.43, -1.22], [0.36, -1.24]].reverse().map(([r, y]) => new THREE.Vector2(r, y));
     const pod = add(new THREE.LatheGeometry(prof, 28).rotateX(-Math.PI / 2), M.podPanel, 0, 0, 0, pivot);
+    add(pod.geometry, M.duct, 0, 0, 0, pivot, false);
     add(new THREE.TorusGeometry(0.5, 0.035, 8, 28), M.ember, 0, 0, -1.0, pivot, false);
     add(new THREE.CylinderGeometry(0.335, 0.335, 0.3, 24, 1, true).rotateX(Math.PI / 2), M.duct, 0, 0, -1.08, pivot, false);
     add(new THREE.CircleGeometry(0.335, 24), M.dark, 0, 0, -0.95, pivot, false);
@@ -416,10 +417,16 @@ export function buildDropship() {
       pet.rotateX(-0.16);
       pivot.add(pet);
     }
-    add(new THREE.CircleGeometry(0.3, 24), M.dark, 0, 0, 1.0, pivot, false);
-    for (let k = 0; k < 8; k++) { const vane = add(new THREE.BoxGeometry(0.02, 0.27, 0.16), nozzle, 0, 0, 1.12, pivot, false); vane.rotation.z = (k / 8) * Math.PI; }
-    // the nozzle glow: a ring of hot metal deep inside, a soft sprite and a cone of exhaust
-    const hot = add(new THREE.RingGeometry(0.12, 0.29, 32), new THREE.MeshBasicMaterial({ color: '#ff7a2a', transparent: true }), 0, 0, 1.03, pivot, false);
+    add(new THREE.CircleGeometry(0.33, 24), M.dark, 0, 0, 0.93, pivot, false);
+    // the nozzle glow: a ring of hot metal deep inside (behind the turbine), a soft sprite and a cone of exhaust
+    const hot = add(new THREE.RingGeometry(0.1, 0.31, 32), new THREE.MeshBasicMaterial({ color: '#ff7a2a' }), 0, 0, 0.95, pivot, false);
+    for (let k = 0; k < 16; k++) {
+      const blade = add(new THREE.BoxGeometry(0.045, 0.24, 0.01), M.fan, 0, 0, 1.0, pivot, false);
+      blade.rotation.set(0, -0.5, (k / 16) * Math.PI * 2, 'ZYX');
+      blade.position.x = Math.sin((k / 16) * Math.PI * 2) * -0.19;
+      blade.position.y = Math.cos((k / 16) * Math.PI * 2) * 0.19;
+    }
+    add(new THREE.ConeGeometry(0.1, 0.32, 18).rotateX(Math.PI / 2), M.fan, 0, 0, 1.14, pivot, false);
     const plume = add(new THREE.ConeGeometry(0.32, 2.2, 20, 1, true).rotateX(-Math.PI / 2), plumeMat(), 0, 0, 2.2, pivot, false);
     plume.userData.noAO = true;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ff9a5a', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
@@ -493,7 +500,8 @@ export function buildDropship() {
       const th = this.thrust_k;
       for (const p of pods) {
         const flick = 0.92 + Math.random() * 0.16;
-        p.hot.material.color.setRGB(1, 0.5, 0.25).multiplyScalar((0.35 + th * 3) * flick);
+        p.hot.visible = th > 0.03;
+        p.hot.material.color.setRGB(1, 0.5, 0.25).multiplyScalar(th * 3.4 * flick);
         p.plume.visible = th > 0.05;
         p.plume.material.uniforms.uK.value = th * flick;
         p.plume.scale.set(1, 1, 0.6 + th * 0.8);
@@ -503,7 +511,7 @@ export function buildDropship() {
       }
       for (const g of belly) g.material.color.setRGB(1, 0.6, 0.35).multiplyScalar(0.15 + th * (1 - this.tilt_k) * 3 * (0.9 + Math.random() * 0.2));
       const blink = (t % 1.6) < 0.08;
-      for (const s of strobes) { s.material.opacity = blink ? 1 : 0; s.scale.setScalar(blink ? 1.6 : 0.01); }
+      for (const s of strobes) { s.material.opacity = blink ? 1 : 0; s.scale.setScalar(blink ? (th > 0.05 ? 0.7 : 0.3) : 0.01); }
     },
   };
   greebles(body, secs, M);

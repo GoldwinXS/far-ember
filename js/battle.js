@@ -651,9 +651,14 @@ export class Battle {
       if (!this.flags.seenAny) { this.flags.seenAny = true; }
       const lead = members[0];
       if (lead) {
-        this.view.focus(lead.x, lead.y);
+        // aim at the middle of the group; a low camera only if it sees all of them
+        const mid = { x: members.reduce((s, m) => s + m.x, 0) / members.length, y: members.reduce((s, m) => s + m.y, 0) / members.length };
         const near = this.soldiers().sort((a, b) => dist(a, lead) - dist(b, lead))[0];
-        if (near) this.view.lowCam(near, lead);
+        const before = this.view.cine;
+        if (near) this.view.lowCam(near, mid, members);
+        // no clear low shot: cut straight to the group from above, pulled back far enough to hold all of them
+        const spread = Math.max(...members.map((m) => dist(m, mid)));
+        if (this.view.cine === before) this.view.focus(mid.x, mid.y, { instant: true, dist: Math.max(this.view.goal.dist, 13 + spread * 1.5) });
         this.ui.banner('Enemies spotted', members.map((m) => m.name).join(', '));
         if (near) this.ui.bark?.(near, 'spotted');
         if (this.mission.type !== 'final') this.sfx.music?.('battle');
@@ -704,7 +709,7 @@ export class Battle {
     this.view.face(s, t.x, t.y, true);
     const visible = isEmber || s.seen !== false;
     if (visible) this.view.focusPair(s, t);
-    const cine = visible && !opt.reaction && Math.random() < (isEmber ? 0.75 : 0.45);
+    const cine = visible && !opt.reaction && (this.forceCine ?? Math.random() < (isEmber ? 0.75 : 0.45));
     if (cine) { this.view.shoulderCam(s, t); this.ui.cine?.(true); }
     await this.view.pose?.(s, 'aim');
     let hit = Math.random() * 100 < o.hit;
@@ -747,6 +752,8 @@ export class Battle {
     if (t.side === 'ember' && t.st && left > 0) t.st.hurt += left;
     this.sfx.hit?.(t.side);
     this.ui.pop(t, style === 'crit' ? `Crit ${dmg}` : `${dmg}`, style);
+    // the squad strip shows hurt and fallen soldiers at once, in the enemy turn too
+    if (t.side === 'ember') this.ui.refresh?.();
     if (t.hp > 0) {
       if (t.side === 'ember' && left > 0) this.ui.bark?.(t, t.hp <= 2 ? 'low' : 'hurt');
       await this.view.pose?.(t, 'hit');
@@ -785,6 +792,7 @@ export class Battle {
       if (has(source, 'untouchable')) source.untouch = true;
     }
     this.sfx.death?.(t.side);
+    if (t.side === 'ember') this.ui.refresh?.();
     await this.view.death(t);
     if (this.sel === t) this.sel = null;
   }

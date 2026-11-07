@@ -19,11 +19,11 @@ const EMBLEM = ['M60 5 L107 29 L100 87 L60 115 L20 87 L13 29 Z', 'M60 24 L67 53 
 // Camera spots for each screen: where the eye stands, the subject, and how far across the screen the subject sits
 // (the menus fill the left half on a wide screen), plus a slow sway for the wide shot.
 export const STATIONS = {
-  title: { eye: [-10.5, 4.2, 14.5], look: [0, 2, -2], x: 0.8, drift: 0.4 },
+  title: { eye: [-10.5, 4.2, 16.5], look: [0, 2, -2], x: 0.92, drift: 0.4 },
   ops: { eye: [3.7, 2.5, -4.6], look: [8.2, 1.5, -9.4], x: 0.7 },
   armoury: { eye: [4.0, 1.75, 11.0], look: [10.6, 1.2, 6.4], x: 0.7 },
   memorial: { eye: [3.0, 1.9, 10.6], look: [6.6, 2.4, 17.6], x: 0.68 },
-  squad: { eye: [4.6, 1.15, 13.6], look: [0.35, 0.8, 6.1], x: 0.76 },
+  squad: { eye: [4.3, 1.05, 12.9], look: [0.35, 1.3, 6.1], x: 0.74 },
   soldier: { eye: [1.75, 1.0, 9.4], look: [0.35, 0.78, 6.3], x: 0.72 },
 };
 export const LINE_Z = 6.3;
@@ -268,8 +268,8 @@ function bakePlanet(renderer) {
       float land = smoothstep(0.5, 0.525, h);
       float shelf = smoothstep(0.43, 0.5, h) * (1.0 - land);
       float dry = smoothstep(0.46, 0.62, fbm(p * 3.1 + 11.0));
-      vec3 ground = mix(vec3(0.1, 0.3, 0.27), vec3(0.55, 0.36, 0.16), dry) * (0.7 + 0.6 * fbm(p * 14.0));
-      vec3 sea = mix(vec3(0.03, 0.03, 0.12), vec3(0.06, 0.16, 0.26), shelf);
+      vec3 ground = mix(vec3(0.17, 0.19, 0.18), vec3(0.58, 0.34, 0.14), dry) * (0.7 + 0.6 * fbm(p * 14.0));
+      vec3 sea = mix(vec3(0.015, 0.06, 0.07), vec3(0.05, 0.2, 0.19), shelf);
       float ice = smoothstep(0.8, 0.88, abs(p.y) + (fbm(p * 6.0) - 0.5) * 0.14);
       vec3 col = mix(mix(sea, ground, land), vec3(0.85, 0.9, 0.95), ice);
       // clouds in bands along the latitudes, broken up by noise
@@ -316,7 +316,7 @@ function planetMat(sun, maps) {
         // lightning in the night side's storms
         c += vec3(0.6, 0.7, 1.0) * cl * night * step(0.996, fract(sin(dot(floor(vUv * 160.0), vec2(12.9, 78.2)) + floor(uTime * 3.0)) * 43758.5)) * 0.9;
         float f = 1.0 - max(dot(n, V), 0.0);
-        c += vec3(0.25, 0.48, 0.9) * pow(f, 3.0) * (0.1 + lit) * 0.8;
+        c += vec3(0.3, 0.68, 0.78) * pow(f, 3.0) * (0.1 + lit) * 0.8;
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -332,7 +332,7 @@ function atmosMat(sun, edge) {
         vec3 n = normalize(vWN), V = normalize(cameraPosition - vWP);
         float g = pow(clamp(-dot(n, V) / ${edge.toFixed(3)}, 0.0, 1.0), 2.2);
         float lit = smoothstep(-0.35, 0.5, dot(n, uSun));
-        vec3 c = vec3(0.3, 0.55, 1.0) * g * (0.06 + lit) * 0.9;
+        vec3 c = vec3(0.32, 0.72, 0.86) * g * (0.06 + lit) * 0.9;
         gl_FragColor = vec4(c, g);
         #include <colorspace_fragment>
       }`,
@@ -359,7 +359,10 @@ function holoMat(maps) {
     fragmentShader: `uniform float uTime; uniform sampler2D tB; varying vec2 vUv; varying vec3 vWN; varying vec3 vWP;
       void main(){
         vec3 n = normalize(vWN), V = normalize(cameraPosition - vWP);
-        float land = texture2D(tB, vUv).r;
+        float la = vUv.y;
+        float land = smoothstep(0.25, 0.75, sin(la * 44.0 + sin(la * 9.0) * 2.0 + sin(vUv.x * 12.566 + la * 20.0) * 0.5) * 0.5 + 0.5) * 0.7;
+        vec2 sd = (vUv - vec2(0.62, 0.38)) * vec2(1.0, 2.6);
+        land += smoothstep(0.06, 0.0, length(sd)) * 0.8 + smoothstep(0.075, 0.06, length(sd)) * 0.5;
         float f = 1.0 - abs(dot(n, V));
         float scan = smoothstep(0.75, 1.0, sin(vWP.y * 70.0 - uTime * 3.0) * 0.5 + 0.5);
         float lon = smoothstep(0.97, 1.0, sin(vUv.x * 56.5)), lat = smoothstep(0.97, 1.0, sin((vUv.y - 0.5) * 28.3));
@@ -574,7 +577,7 @@ export function buildCarrier(view) {
   root.add(memorial);
   b.add(B(6.8, 4.2, 0.3), M.dark, 6.6, 2.55, L / 2 - 0.25);
   const memTex = ctex(memorialCanvas([]));
-  const memMat = new THREE.MeshStandardMaterial({ map: memTex, emissiveMap: memTex, emissive: '#ffb070', emissiveIntensity: 1.1, roughness: 0.45, metalness: 0.35 });
+  const memMat = new THREE.MeshStandardMaterial({ map: memTex, emissiveMap: memTex, emissive: '#ffb070', emissiveIntensity: 1.4, roughness: 0.45, metalness: 0.35 });
   const memPlane = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 3.62).rotateY(Math.PI), memMat);
   memPlane.position.set(0, 2.55, -0.12);
   memorial.add(memPlane);
@@ -589,7 +592,7 @@ export function buildCarrier(view) {
     root.add(sp);
     candles.push(sp);
   }
-  const memLight = new THREE.PointLight('#ffb070', 15, 11, 1.6);
+  const memLight = new THREE.PointLight('#ffb070', 24, 13, 1.6);
   memLight.position.set(6.6, 2.4, L / 2 - 2.2);
   root.add(memLight);
 
@@ -614,6 +617,9 @@ export function buildCarrier(view) {
   armLight.position.set(W / 2 - 4.2, 6.8, 7.0);
   armLight.target.position.set(W / 2 - 1.2, 1.0, 7.1);
   root.add(armLight, armLight.target);
+  const armFill = new THREE.PointLight('#ffd9b0', 10, 9, 1.6);
+  armFill.position.set(W / 2 - 2.4, 3.4, 4.0);
+  root.add(armFill);
   const sign = (() => {
     const c = canvas(1024, 192), g = c.getContext('2d');
     g.fillStyle = '#0a0e16'; g.fillRect(0, 0, 1024, 192);
@@ -653,6 +659,17 @@ export function buildCarrier(view) {
   holo.add(beam);
   const markers = new THREE.Group();
   globe.add(markers);
+  const moons = new THREE.Group();
+  moons.position.y = 1.85;
+  holo.add(moons);
+  for (const [r, a, s] of [[1.08, 0.4, 0.07], [1.32, 2.6, 0.05]]) {
+    const mo = new THREE.Mesh(new THREE.SphereGeometry(s, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color('#7fe8ff').multiplyScalar(1.4), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+    mo.position.set(Math.cos(a) * r, Math.sin(a * 3) * 0.12, Math.sin(a) * r);
+    moons.add(mo);
+    const orbit = new THREE.Mesh(new THREE.TorusGeometry(r, 0.004, 4, 96).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#58e0ff', transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+    moons.add(orbit);
+  }
+  moons.traverse((o) => { o.userData.noAO = true; });
   // two consoles beside the table, screens tilted up toward whoever stands at them
   for (const s of [-1, 1]) {
     const con = new THREE.Group();
@@ -679,6 +696,30 @@ export function buildCarrier(view) {
     scr.position.set(x + Math.sin(ry) * 0.12, 1.02, z + Math.cos(ry) * 0.12); scr.rotation.set(-0.75, ry, 0, 'YXZ');
     root.add(scr);
   }
+  const wallScreen = (() => {
+    const c = canvas(1024, 512), g = c.getContext('2d'), rr = rngOf(9);
+    g.fillStyle = '#04121a'; g.fillRect(0, 0, 1024, 512);
+    g.strokeStyle = 'rgba(90,224,255,.25)'; g.lineWidth = 1;
+    for (let x = 0; x < 1024; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 512); g.stroke(); }
+    for (let y = 0; y < 512; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(1024, y); g.stroke(); }
+    g.strokeStyle = '#58e0ff'; g.lineWidth = 2;
+    for (let k = 0; k < 6; k++) { g.beginPath(); g.arc(300, 260, 40 + k * 34, 0, 7); g.stroke(); }
+    for (let i = 0; i < 9; i++) { const a2 = rr() * 6.28, d = 60 + rr() * 170; g.fillStyle = i < 3 ? EMBER : '#58e0ff'; g.beginPath(); g.arc(300 + Math.cos(a2) * d, 260 + Math.sin(a2) * d, 6, 0, 7); g.fill(); }
+    g.fillStyle = 'rgba(160,236,255,.85)'; g.font = '600 30px "Chakra Petch", sans-serif';
+    g.fillText('FRONTIER  SECTOR  7', 600, 90);
+    for (let i = 0; i < 8; i++) g.fillRect(600, 140 + i * 36, 120 + rr() * 260, 8);
+    return ctex(c);
+  })();
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.6).rotateY(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: wallScreen, color: new THREE.Color(1.3, 1.3, 1.3) }));
+  wall.position.set(W / 2 - 0.2, 3.0, -10.2);
+  root.add(wall);
+  const stand = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.5), new THREE.MeshBasicMaterial({ map: wallScreen, color: new THREE.Color(0.95, 0.95, 0.95) }));
+  stand.position.set(8.82, 2.65, -12.25);
+  stand.rotation.y = -0.59;
+  root.add(stand);
+  b.add(B(3.15, 1.62, 0.08), M.dark, 8.82 + Math.sin(-0.59) * -0.06, 2.65, -12.25 + Math.cos(-0.59) * -0.06, -0.59);
+  b.add(B(0.12, 1.9, 0.12), M.dark, 8.82 + Math.sin(-0.59) * -0.1, 0.95, -12.25 + Math.cos(-0.59) * -0.1, -0.59);
+  b.add(B(0.2, 2.9, 5.5), M.dark, W / 2 - 0.05, 3.0, -10.2);
   const holoLight = new THREE.PointLight('#58e0ff', 12, 9, 1.8);
   holoLight.position.set(8.2, 2.2, -9.4);
   root.add(holoLight);
@@ -709,7 +750,7 @@ export function buildCarrier(view) {
   // light shafts under the pad fixtures and drifting dust
   const shafts = [];
   for (const [x, z] of fixtures) {
-    if (Math.abs(z - SHIP_AT.z) > 7 || Math.abs(x) > 6) continue;
+    if (z > 1 || z < SHIP_AT.z - 7 || Math.abs(x) > 6) continue;
     const c = new THREE.Mesh(new THREE.ConeGeometry(2.4, H - 1.4, 32, 1, true), coneMat('#cfe0ff', 0.06));
     c.position.set(x, (H - 1.4) / 2, z);
     c.userData.noAO = true;
@@ -723,7 +764,14 @@ export function buildCarrier(view) {
   }
   const dg = new THREE.BufferGeometry();
   dg.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
-  const dust = new THREE.Points(dg, new THREE.PointsMaterial({ size: 0.035, map: glowTex(), color: '#cdd8ff', transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const dustMat = new THREE.PointsMaterial({ size: 0.035, map: glowTex(), color: '#cdd8ff', transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+  dustMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+      .replace('#include <fog_vertex>', '#include <fog_vertex>\n  vNear = smoothstep(1.5, 4.0, -mvPosition.z);\n  gl_PointSize = min(gl_PointSize, 6.0);');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+      .replace('#include <alphatest_fragment>', '#include <alphatest_fragment>\n  diffuseColor.a *= vNear;');
+  };
+  const dust = new THREE.Points(dg, dustMat);
   root.add(dust);
 
   // space: stars, a planet with an atmosphere below the door, a moon and the star itself
@@ -798,6 +846,7 @@ export function buildCarrier(view) {
     },
     tick(dt, t) {
       globe.rotation.y += dt * 0.12;
+      moons.rotation.y -= dt * 0.08;
       ring.rotation.z += dt * 0.2;
       globe.material.uniforms.uTime.value = t;
       field.material.uniforms.uTime.value = t;
@@ -809,7 +858,7 @@ export function buildCarrier(view) {
         bc.halo.material.opacity = 0.3 + k * 0.7;
       }
       for (const [i, c] of candles.entries()) c.material.opacity = 0.65 + Math.sin(t * (7 + i) + i * 3) * 0.1 + Math.random() * 0.12;
-      memLight.intensity = 14 + Math.random() * 1.5;
+      memLight.intensity = 23 + Math.random() * 2;
       for (let i = 0; i < N; i++) {
         for (let k = 0; k < 3; k++) {
           let v = dpos[i * 3 + k] + dvel[i * 3 + k] * dt;

@@ -58,14 +58,16 @@ const markCache = new Map();
 function markingTex(seed) {
   if (markCache.has(seed)) return markCache.get(seed);
   const r = makeRng(seed);
-  const owners = ['EMBR', 'HLCU', 'TGHU', 'MSKU', 'CAIU', 'OOLU'];
+  // frontier freight lines: an owner, a chevron mark and a short hold code (no real-world container codes)
+  const owners = ['LANTERN FREIGHT', 'VELL SUPPLY', 'KESTREL AGRI', 'FRONTIER RELIEF', 'ARDEN MINING'];
   const t = canvasTex(512, 256, (g) => {
     g.clearRect(0, 0, 512, 256);
-    g.fillStyle = 'rgba(240,238,228,0.92)';
-    g.font = 'bold 54px Arial Narrow, Arial, sans-serif';
-    g.fillText(`${owners[Math.floor(r() * owners.length)]} ${Math.floor(100000 + r() * 899999)} ${Math.floor(r() * 9)}`, 24, 82);
-    g.font = 'bold 30px Arial, sans-serif';
-    g.fillText(`22G1   MAX GR ${Math.floor(28 + r() * 6)},${Math.floor(r() * 9)}00 KG`, 24, 130);
+    g.fillStyle = 'rgba(240,238,228,0.9)';
+    for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(24 + k * 22, 40); g.lineTo(38 + k * 22, 62); g.lineTo(24 + k * 22, 84); g.lineTo(34 + k * 22, 84); g.lineTo(48 + k * 22, 62); g.lineTo(34 + k * 22, 40); g.fill(); }
+    g.font = 'bold 42px Arial Narrow, Arial, sans-serif';
+    g.fillText(owners[Math.floor(r() * owners.length)], 104, 78);
+    g.font = 'bold 28px Arial, sans-serif';
+    g.fillText(`HOLD ${'ABCDEF'[Math.floor(r() * 6)]}${Math.floor(1 + r() * 9)}-${Math.floor(100 + r() * 899)}`, 104, 120);
     // dirt and rust streaks over the paint
     for (let i = 0; i < 26; i++) {
       g.fillStyle = `rgba(${90 + r() * 50},${45 + r() * 25},${20 + r() * 15},${0.08 + r() * 0.18})`;

@@ -14,7 +14,7 @@ import { buildCarrier, loadHangar, hangarEnv } from './carrier.js';
 // sun: direction (x, y, z), colour, strength. env: sky light strength. exp: exposure. fog: haze colour and range.
 const LIGHTS = {
   day: { sunDir: [-0.7, 0.62, 0.42], sun: '#fff1de', sunI: 3.2, env: 0.75, exp: 0.95, fog: '#aebccb', fogNear: 30, fogFar: 85, rim: 0.1, hemi: ['#cfe0ff', '#5a5040', 0.25], grade: { sat: 1.05, contrast: 1.06, tint: [1.0, 0.995, 0.985], vig: 0.3, bloom: 0.22 } },
-  dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffab6a', sunI: 3.2, env: 0.75, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#ffc9a0', '#4a5272', 0.22], grade: { sat: 1.08, contrast: 1.08, tint: [1.03, 0.99, 0.95], vig: 0.36, bloom: 0.32 } },
+  dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32 } },
   night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55 } },
   spireday: { sunDir: [-0.5, 0.75, -0.4], sun: '#f4f0ff', sunI: 2.8, env: 0.8, exp: 1.22, fog: '#6a7088', fogNear: 26, fogFar: 72, rim: 0.12, hemi: ['#c8c0ff', '#3a3248', 0.45], grade: { sat: 0.95, contrast: 1.08, tint: [0.97, 0.99, 1.03], vig: 0.34, bloom: 0.28 } },
   spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55 } },
@@ -202,7 +202,8 @@ export class View {
     const at = s.look.clone().sub(s.eye).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan((frac - 0.5) * 2 * tanH)).add(s.eye);
     this.stationNow = s;
     this.cine = { p: s.eye.clone(), t: at, speed: 1.7 };
-    if (instant || !this.cineCur) this.cineCur = { p: s.eye.clone(), t: at.clone() };
+    // a long move would glide through the dropship: cut instead
+    if (instant || !this.cineCur || this.cineCur.p.distanceTo(s.eye) > 9) this.cineCur = { p: s.eye.clone(), t: at.clone() };
   }
   makeGrassImpostor() {
     if (this.grassDone) return;
@@ -254,7 +255,9 @@ export class View {
     this.map = map;
     this.bounds = { w: map.w, h: map.h };
     const key = map.biome === 'spire' ? 'spire' : time;
-    const L = (map.biome === 'spire' ? LIGHTS[time === 'day' ? 'spireday' : time === 'night' ? 'spirenight' : 'spire'] : LIGHTS[key]) || LIGHTS.day;
+    let L = (map.biome === 'spire' ? LIGHTS[time === 'day' ? 'spireday' : time === 'night' ? 'spirenight' : 'spire'] : LIGHTS[key]) || LIGHTS.day;
+    // the farm's soil went pink under an orange key and a blue fill: a yellower key and a neutral fill keep it ochre
+    if (map.biome === 'farm' && key === 'dusk') L = { ...L, sun: '#ffc874', env: 0.45, hemi: ['#6f7a80', '#4a4030', 0.4], grade: { ...L.grade, tint: [1.0, 1.0, 0.94] } };
     this.light = L;
     this.scene.environment = this.envCache.get(SKIES[key]) || null;
     this.hemi.color.set(L.hemi[0]);
@@ -313,7 +316,7 @@ export class View {
           // floodlights throw a cone of cool white down the lane; street lamps a warm pool
           let l;
           if (p.flood) {
-            l = new THREE.SpotLight('#fff1dc', key === 'night' ? 60 : 25, 16, 0.75, 0.55, 2);
+            l = new THREE.SpotLight(map.biome === 'yard' ? '#ffc890' : '#fff1dc', key === 'night' ? 40 : 22, 16, 0.75, 0.6, 2);
             l.target.position.copy(p.flood);
             this.world.add(l.target);
           } else l = new THREE.PointLight('#ffc27a', key === 'night' ? 16 : 8, 8, 2);
@@ -323,9 +326,9 @@ export class View {
         }
         // floodlights always paint their pool; street lamps only when they have no real light
         if (p.flood || !lit.has(p)) flat(p.flood || p, p.flood ? 3.4 : 2.4, p.flood ? '#fff0d8' : '#ffb868', key === 'night' ? (p.flood && lit.has(p) ? 0.2 : 0.32) : 0.16);
-        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: p.flood ? '#fff4e0' : '#ffcf8a', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.55 }));
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: p.flood ? (map.biome === 'yard' ? '#ffc070' : '#fff4e0') : '#ffcf8a', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.4 }));
         glow.position.copy(p);
-        glow.scale.setScalar(p.flood ? 0.9 : 0.38);
+        glow.scale.setScalar(p.flood ? 0.45 : 0.26);
         this.world.add(glow);
       }
     }
@@ -348,15 +351,20 @@ export class View {
       this.world.add(this.torch);
     }
     fireBook();
-    this.world.add(frontierSky(cx, cz, map.w));
-    // a sky dome: deep at the zenith, the fog's colour at the horizon, so the far ground melts into it
-    const zen = { day: '#4f74ad', dusk: '#2b2d4a', night: '#070b16', spire: '#2a2240' }[map.biome === 'spire' ? (time === 'night' ? 'night' : 'spire') : key] || '#4f74ad';
+    // a sky dome: the fog's colour at the horizon, a glow band just above it, then darkening fast over the first
+    // 25 degrees (all a close camera sees) to the zenith
+    const sk = map.biome === 'spire' ? (time === 'night' ? 'night' : 'spire') : key;
+    const zen = { day: '#5b7aa6', dusk: '#2b2d4a', night: '#070b16', spire: '#2a2240' }[sk] || '#5b7aa6';
+    const glow = { day: '#c9ccd2', dusk: '#c9805a', night: '#1c2438', spire: '#8a5a7a' }[sk] || '#c9ccd2';
+    const mid = { day: '#7f9cc4', dusk: '#6a4a5a', night: '#121a2c', spire: '#4a3450' }[sk] || '#7f9cc4';
+    // the giant sits on the far side of the map: light it from the camera's side of the sun so it shows a lit face, not a crescent
+    this.world.add(frontierSky(cx, cz, map.w, { sun: new THREE.Vector3(L.sunDir[0], L.sunDir[1], Math.abs(L.sunDir[2]) * 0.6 + 0.25).normalize(), sky: new THREE.Color(glow), haze: sk === 'day' ? 0.25 : 0.1, bright: sk === 'night' ? 0.3 : 1 }));
     this.skyDome = new THREE.Mesh(new THREE.SphereGeometry(195, 32, 16), new THREE.ShaderMaterial({
-      uniforms: { uZen: { value: new THREE.Color(zen) }, uHor: { value: new THREE.Color(L.fog) } },
+      uniforms: { uZen: { value: new THREE.Color(zen) }, uHor: { value: new THREE.Color(L.fog) }, uGlow: { value: new THREE.Color(glow) }, uMid: { value: new THREE.Color(mid) } },
       side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform vec3 uZen; uniform vec3 uHor; varying vec3 vD;
-        void main(){ vec3 c = mix(uHor, uZen, smoothstep(0.0, 0.55, vD.y)); gl_FragColor = vec4(c, 1.0);
+      fragmentShader: `uniform vec3 uZen; uniform vec3 uHor; uniform vec3 uGlow; uniform vec3 uMid; varying vec3 vD;
+        void main(){ vec3 c = mix(uHor, uGlow, smoothstep(0.0, 0.05, vD.y)); c = mix(c, uMid, smoothstep(0.05, 0.42, vD.y)); c = mix(c, uZen, smoothstep(0.42, 0.9, vD.y)); gl_FragColor = vec4(c, 1.0);
           #include <colorspace_fragment>
         }`,
     }));
@@ -428,6 +436,7 @@ export class View {
   // Turn toward a tile. When aiming, turn a little further so the barrel (not the chest) points at it.
   face(u, tx, ty, aiming) {
     const r = this.rig(u);
+    if (r && r.dying) return;
     if (r && (tx !== u.x || ty !== u.y)) r.targetYaw = Math.atan2(tx - u.x, ty - u.y) - ((aiming || r.base === 'aim') && r.aimOffset ? r.aimOffset : 0);
   }
   removeUnit(u) {
@@ -533,20 +542,21 @@ export class View {
       this.scene.backgroundIntensity = this.skyLevel ?? 0.8;
     } else if (this.fogColor) this.scene.background = this.fogColor;
   }
-  lowCam(from, to) {
+  lowCam(from, to, group) {
     if (this.instant) return;
     const a = new THREE.Vector3(from.x, 0, from.y), b = new THREE.Vector3(to.x, 0, to.y);
     const dir = b.clone().sub(a).normalize();
     const p = a.clone().addScaledVector(dir, -2.5);
     p.y = 2.2;
     if (this.camBlocked(p) || !this.clearView(p, b)) return;
+    if (group && group.some((u) => { const q = new THREE.Vector3(u.x, 0, u.y); return !this.clearView(p, q) || q.clone().sub(p).setY(0).normalize().dot(dir) < 0.94; })) return;
     this.cine = { p, t: b.clone().setY(0.9) };
     this.skyOn(true);
   }
   // Does a straight line from the camera to the target stay clear of walls?
   clearView(p, b) {
     if (!this.map) return true;
-    for (let k = 0.15; k < 0.92; k += 0.07) {
+    for (let k = 0.1; k < 0.97; k += 0.035) {
       const x = Math.round(p.x + (b.x - p.x) * k), z = Math.round(p.z + (b.z - p.z) * k);
       if (this.map.inside(x, z) && this.map.blocksLOS(x, z)) return false;
     }
@@ -897,8 +907,13 @@ export class View {
     g.add(fill);
     const flares = [];
     for (const [fx, fz] of [[1.25, 1.25], [-1.25, -1.25]]) {
-      const light = new THREE.PointLight('#7dff96', 3, 4, 2);
+      const light = new THREE.PointLight('#7dff96', 2, 4, 2);
       light.position.set(fx, 0.25, fz);
+      // the flare stick itself
+      const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.2, 8), new THREE.MeshStandardMaterial({ color: '#3a4a3e', roughness: 0.6 }));
+      stick.position.set(fx, 0.05, fz);
+      stick.rotation.z = 1.2;
+      g.add(stick);
       const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#b8ffc8', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
       core.position.set(fx, 0.12, fz);
       core.scale.setScalar(0.35);
@@ -1058,21 +1073,29 @@ export class View {
     const ground = to.clone();
     ground.y = 0.1;
     this.puff(ground, '#6f6a62', 0.55, 1.2, 0.5);
-    const mark = new THREE.Mesh(new THREE.CircleGeometry(0.22, 14).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex(), color: new THREE.Color(color).multiplyScalar(2), transparent: true, depthWrite: false }));
-    mark.position.set(to.x, 0.04, to.z);
+    // a ragged black char ring that stays a while, with a small hot core inside it that cools over three seconds
+    const char = new THREE.Mesh(new THREE.CircleGeometry(0.34, 18).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: scorchTex(), color: '#000000', transparent: true, opacity: 0, depthWrite: false }));
+    char.position.set(to.x, 0.038, to.z);
+    char.rotation.y = Math.random() * 6;
+    char.userData.noAO = true;
+    this.fxRoot.add(char);
+    const mark = new THREE.Mesh(new THREE.CircleGeometry(0.13, 14).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex(), color: new THREE.Color(color).multiplyScalar(2.4), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    mark.position.set(to.x, 0.042, to.z);
     mark.userData.noAO = true;
     this.fxRoot.add(mark);
-    // the scorch glows, cools to black over three seconds, and stays a while
     const ms = this.time;
     this.scorches = (this.scorches || []).filter((m) => m.parent);
-    this.scorches.push(mark);
+    this.scorches.push(char);
     if (this.scorches.length > 50) { const old = this.scorches.shift(); old.removeFromParent(); old.material.dispose(); }
     this.fx.push(() => {
       const t = this.time - ms, k = Math.min(1, t / 3);
-      mark.material.color.set(color).multiplyScalar(2 * (1 - k)).lerp(new THREE.Color('#000000'), k);
-      mark.material.blending = k < 0.6 ? THREE.AdditiveBlending : THREE.NormalBlending;
-      mark.material.opacity = k < 0.6 ? 1 : 0.55 * Math.min(1, Math.max(0, (34 - t) / 4));
-      if (t > 34) { mark.removeFromParent(); mark.material.dispose(); return false; }
+      if (mark.parent) {
+        mark.material.color.set(color).multiplyScalar(2.4 * (1 - k) * (1 - k));
+        if (k >= 1) { mark.removeFromParent(); mark.material.dispose(); }
+      }
+      if (!char.parent) return false;
+      char.material.opacity = 0.72 * Math.min(1, t / 0.25) * Math.min(1, Math.max(0, (34 - t) / 4));
+      if (t > 34) { char.removeFromParent(); char.material.dispose(); return false; }
       return true;
     });
   }
@@ -1575,9 +1598,10 @@ export class View {
     if (this.evacGroup) {
       this.evacGroup.userData.pulse.material.opacity = 0.07 + Math.sin(this.time * 2) * 0.03;
       for (const [fx, fz, light, core] of this.evacGroup.userData.flares) {
-        light.intensity = 2.5 + Math.random() * 1.2;
-        core.scale.setScalar(0.3 + Math.random() * 0.08);
-        if (Math.random() < 0.25) this.puff(new THREE.Vector3(this.evacGroup.position.x + fx, 0.25, this.evacGroup.position.z + fz), '#9ee8ae', 0.35, 2.2, 0.5);
+        light.intensity = 1.6 + Math.random() * 0.7;
+        core.scale.setScalar(0.2 + Math.random() * 0.05);
+        // a thin trail of flare smoke, not a glowing cloud
+        if (Math.random() < 0.07) this.puff(new THREE.Vector3(this.evacGroup.position.x + fx, 0.25, this.evacGroup.position.z + fz), '#7a9a84', 0.28, 2.2, 0.4);
       }
     }
     if (this.cacheGroup && this.cacheGroup.userData.spin) { this.cacheGroup.userData.spin.rotation.y += dt; this.cacheGroup.userData.spin.position.y = 0.25 + Math.sin(this.time * 2) * 0.06; }
@@ -1601,10 +1625,26 @@ export class View {
     for (const r of this.rigs.values()) if (r.root.visible && !r.corpse) inside.push(r.root.position);
     if (this.dest.visible) inside.push(this.dest.position);
     const close = this.cam.dist < 11;
+    // what the camera is looking at: its target, and anyone standing near it
+    const eye = this.camera.position;
+    // (a close camera's target counts; the tactical view's ground point does not, or houses near it lose their roofs for nothing)
+    const tgt = this.cine ? this.cine.t : null;
+    const ref = tgt || new THREE.Vector3(this.cam.tx, 0, this.cam.tz);
+    const seen = tgt ? [tgt] : [];
+    for (const r of this.rigs.values()) if (r.root.visible && !r.corpse && Math.hypot(r.root.position.x - ref.x, r.root.position.z - ref.z) < 7) seen.push(r.root.position);
     for (const R of this.roofs) {
       const b = R.b;
       const occupied = inside.some((p) => p.x > b.x0 - 0.3 && p.x < b.x0 + b.w - 0.7 && p.z > b.y0 - 0.3 && p.z < b.y0 + b.h - 0.7);
-      const target = occupied || close ? 0 : 1;
+      // under the real gable: eaves low at the sides, the ridge along the long axis
+      const S = R.shape, alongX = S && S.x1 - S.x0 >= S.z1 - S.z0, half = S && (alongX ? S.z1 - S.z0 : S.x1 - S.x0) / 2;
+      const under = (x, y, z) => x > S.x0 - S.oh && x < S.x1 + S.oh && z > S.z0 - S.oh && z < S.z1 + S.oh
+        && y < S.h + S.slope * (half - (alongX ? Math.abs(z - (S.z0 + S.z1) / 2) : Math.abs(x - (S.x0 + S.x1) / 2)));
+      const hides = S && !occupied && !close && seen.some((q) => {
+        for (let k = 0.04; k < 0.97; k += 0.04) if (under(eye.x + (q.x - eye.x) * k, eye.y + (q.y + 0.9 - eye.y) * k, eye.z + (q.z - eye.z) * k)) return true;
+        return false;
+      });
+      // a roof in the way thins to a ghost; it only goes when someone is inside or the camera is close
+      const target = occupied || close ? 0 : hides ? 0.45 : 1;
       R.fade += (target - R.fade) * Math.min(1, dt * 6);
       for (const m of R.mats) { m.opacity = R.fade; m.depthWrite = R.fade > 0.95; }
       R.roof.visible = R.fade > 0.02;
@@ -1706,7 +1746,7 @@ let _smokeLit = null;
 // The frontier sky: a ringed gas giant and a small moon far beyond the map, lit by the same sun. Low and cinematic
 // cameras see them over the rooftops.
 let _gasTex = null, _ringTex = null, _moonTex = null;
-function frontierSky(cx, cz, size) {
+function frontierSky(cx, cz, size, look) {
   const canvas = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
   const rng = makeRng(77);
   _gasTex ||= canvas(1024, 512, (g, w, h) => {
@@ -1740,15 +1780,53 @@ function frontierSky(cx, cz, size) {
   });
   const grp = new THREE.Group();
   const far = 150 + size;
-  const giant = new THREE.Mesh(new THREE.SphereGeometry(34, 64, 32), new THREE.MeshStandardMaterial({ map: _gasTex, emissiveMap: _gasTex, emissive: '#ffffff', emissiveIntensity: 0.08, roughness: 1, metalness: 0, fog: false }));
-  giant.position.set(cx - far * 0.3, 74, cz - far * 0.85);
+  // about 13 degrees wide, centred 4.5 degrees up: it rises out of the horizon haze, disc and ring under the top of a close camera
+  const GR = 19, R0 = GR * 1.23, R1 = GR * 1.92;
+  const giant = new THREE.Mesh(new THREE.SphereGeometry(GR, 64, 32));
+  giant.position.set(cx + 18, 13, cz - far * 0.95);
   giant.rotation.set(0.2, 0, 0.32);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(42, 66, 128, 1), new THREE.MeshStandardMaterial({ map: _ringTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 1, fog: false }));
-  ring.rotation.set(-Math.PI / 2 + 0.38, 0, 0.32);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(R0, R1, 128, 1));
   giant.add(ring);
   ring.rotation.set(-Math.PI / 2 + 0.18, 0, 0);
-  const moon = new THREE.Mesh(new THREE.SphereGeometry(6, 32, 16), new THREE.MeshStandardMaterial({ map: _moonTex, roughness: 1, fog: false }));
-  moon.position.set(cx + far * 0.35, 58, cz - far * 0.9);
+  const ringN = new THREE.Vector3(0, 0, 1).applyQuaternion(giant.quaternion.clone().multiply(ring.quaternion));
+  const U = { tMap: { value: _gasTex }, uSun: { value: look.sun }, uSky: { value: look.sky }, uHaze: { value: look.haze }, uBright: { value: look.bright },
+    uC: { value: giant.position.clone() }, uR: { value: GR }, uN: { value: ringN }, uR0: { value: R0 }, uR1: { value: R1 } };
+  const VS = 'varying vec2 vUv; varying vec3 vN; varying vec3 vW; void main(){ vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
+  const HEAD = 'uniform sampler2D tMap; uniform vec3 uSun; uniform vec3 uSky; uniform float uHaze; uniform float uBright; uniform vec3 uC; uniform float uR; uniform vec3 uN; uniform float uR0; uniform float uR1; varying vec2 vUv; varying vec3 vN; varying vec3 vW;';
+  giant.material = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fog: false,
+    fragmentShader: `${HEAD}
+      void main(){
+        vec3 n = normalize(vN), V = normalize(cameraPosition - vW);
+        vec3 alb = texture2D(tMap, vUv).rgb;
+        float lit = smoothstep(-0.06, 0.35, dot(n, uSun));
+        // the ring's shadow across the disc
+        float dn = dot(uSun, uN), t = abs(dn) > 0.001 ? dot(uC - vW, uN) / dn : -1.0;
+        float k = (length(vW + uSun * t - uC) - uR0) / (uR1 - uR0);
+        float ringSh = t > 0.0 && k > 0.0 && k < 1.0 ? (0.25 + 0.5 * abs(sin(k * 55.0)) * abs(sin(k * 12.0))) * 0.8 : 0.0;
+        vec3 c = alb * (lit * (1.0 - ringSh) * 1.2 + 0.02) * uBright;
+        float f = 1.0 - max(dot(n, V), 0.0);
+        c += uSky * pow(f, 3.0) * 0.3 * (0.25 + lit);
+        c = mix(c, uSky, uHaze + 0.5 * smoothstep(8.0, -4.0, vW.y));
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }` });
+  ring.material = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fog: false, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    fragmentShader: `${HEAD} uniform sampler2D tRing;
+      void main(){
+        float a = texture2D(tRing, vUv).a;
+        // the planet's shadow on the ring
+        vec3 o = vW - uC; float b = dot(o, uSun), h = b * b - dot(o, o) + uR * uR;
+        float sh = h > 0.0 && -b - sqrt(h) > 0.0 ? 0.1 : 1.0;
+        vec3 c = vec3(0.89, 0.81, 0.67) * (0.15 + 0.85 * sh) * uBright;
+        c = mix(c, uSky, uHaze + 0.5 * smoothstep(8.0, -4.0, vW.y));
+        gl_FragColor = vec4(c, a * 0.9);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }` });
+  ring.material.uniforms = { ...U, tRing: { value: _ringTex } };
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(4.5, 32, 16), new THREE.MeshStandardMaterial({ map: _moonTex, roughness: 1, fog: false, envMapIntensity: 0.3 }));
+  moon.position.set(cx - far * 0.4, 21, cz - far * 0.88);
   grp.add(giant, moon);
   grp.traverse((o) => { o.userData.noAO = true; o.castShadow = false; o.receiveShadow = false; });
   return grp;

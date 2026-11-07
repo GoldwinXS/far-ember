@@ -6,8 +6,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // The customisation palettes. Index 0 of each is the default.
 export const PALETTE = {
-  armour: [['Bone', '#d8d4c8'], ['Ash', '#8e949c'], ['Navy', '#34486b'], ['Olive', '#67714d'], ['Sand', '#bba27b'], ['Ember', '#c8652d'], ['Crimson', '#8c302d'], ['Night', '#2d3036']],
-  trim: [['Ember', '#ff7a2e'], ['Gold', '#d9a743'], ['White', '#ebe9e2'], ['Teal', '#2fb3b8'], ['Red', '#c7372f'], ['Navy', '#24355a'], ['Black', '#1d1f23'], ['Olive', '#515c39']],
+  armour: [['Bone', '#bab5a8'], ['Ash', '#8e949c'], ['Navy', '#34486b'], ['Olive', '#67714d'], ['Sand', '#bba27b'], ['Ember', '#c8652d'], ['Crimson', '#8c302d'], ['Night', '#2d3036']],
+  trim: [['Ember', '#ff7a2e'], ['Gold', '#d9a743'], ['White', '#d2cfc6'], ['Teal', '#2fb3b8'], ['Red', '#c7372f'], ['Navy', '#24355a'], ['Black', '#1d1f23'], ['Olive', '#515c39']],
   suit: [['Charcoal', '#4c5057'], ['Navy', '#3a4864'], ['Olive', '#4f5540'], ['Brown', '#5a4f42'], ['Grey', '#7e8288']],
   visor: [['Ember', '#ff8a3d'], ['Teal', '#5ae0ff'], ['Green', '#8cff6a'], ['Red', '#ff4a4a'], ['Gold', '#ffcf5a'], ['White', '#e8f0ff']],
   helmet: ['Standard', 'Crested', 'Spotter'],
@@ -33,8 +33,8 @@ const PLATES = [
   { id: 'chest', V: [-1, -0.55, -0.18, 0.18, 0.55, 1], a: 'Spine1', b: 'Neck', on: ['Spine1', 'Spine2'], t: [0.1, 0.93], face: 'fwd', half: 74, off: 0.012, th: 0.016, at: 'Spine2' },
   { id: 'back', V: [-1, -0.5, 0, 0.5, 1], a: 'Spine1', b: 'Neck', on: ['Spine1', 'Spine2'], t: [0.02, 0.9], face: 'back', half: 70, off: 0.014, th: 0.016, at: 'Spine2' },
   { id: 'belly', V: [-1, -0.35, 0.35, 1], a: 'Hips', b: 'Spine1', on: ['Spine', 'Hips', 'Spine1'], t: [0.42, 1.0], face: 'fwd', half: 58, off: 0.01, th: 0.012, at: 'Spine' },
-  { id: 'shoulderL', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'LeftArm', b: 'LeftForeArm', on: ['LeftArm', 'LeftShoulder'], t: [-0.2, 0.42], face: 'out', half: 86, off: 0.012, th: 0.013, at: 'LeftArm', cls: true },
-  { id: 'shoulderR', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'RightArm', b: 'RightForeArm', on: ['RightArm', 'RightShoulder'], t: [-0.2, 0.42], face: 'out', half: 86, off: 0.012, th: 0.013, at: 'RightArm' },
+  { id: 'shoulderL', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'LeftArm', b: 'LeftForeArm', on: ['LeftArm', 'LeftShoulder'], t: [-0.12, 0.32], face: 'out', half: 70, off: 0.012, th: 0.013, at: 'LeftArm', cls: true },
+  { id: 'shoulderR', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'RightArm', b: 'RightForeArm', on: ['RightArm', 'RightShoulder'], t: [-0.12, 0.32], face: 'out', half: 70, off: 0.012, th: 0.013, at: 'RightArm' },
   { id: 'forearmL', V: [-1, -0.33, 0.33, 1], a: 'LeftForeArm', b: 'LeftHand', on: ['LeftForeArm'], t: [0.2, 0.86], face: 'out', half: 84, off: 0.008, th: 0.011, at: 'LeftForeArm' },
   { id: 'forearmR', V: [-1, -0.33, 0.33, 1], a: 'RightForeArm', b: 'RightHand', on: ['RightForeArm'], t: [0.2, 0.86], face: 'out', half: 84, off: 0.008, th: 0.011, at: 'RightForeArm' },
   { id: 'thighL', V: [-1, -0.3, 0, 0.3, 1], round: 0.1, a: 'LeftUpLeg', b: 'LeftLeg', on: ['LeftUpLeg'], t: [0.16, 0.64], face: 'fwdOut', half: 64, off: 0.008, th: 0.01, at: 'LeftUpLeg' },
@@ -108,8 +108,8 @@ function shell(NU, NV, pts, th, paint, closedV = false) {
   const outer = [], inner = [], uvs = [], pa = [];
   for (let i = 0; i <= NU; i++) for (let j = 0; j <= NV; j++) {
     outer.push(...pts(i, j, th)); inner.push(...pts(i, j, 0));
-    // uv measures distance from the plate's edges (a closed helmet only has its lower rim)
-    uvs.push(closedV ? 0.5 : j / NV, closedV ? 0.5 + (0.5 * i) / NU : i / NU); pa.push(...paint(i, j));
+    // uv measures distance from the plate's edges (a closed helmet only has its lower rim, and no seam lines)
+    uvs.push(j / NV, closedV ? 0.75 + (0.25 * i) / NU : i / NU); pa.push(...paint(i, j));
   }
   const idx = [];
   for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
@@ -279,7 +279,7 @@ function fitPlate(spec, verts, J, fwd) {
 
 // The helmet: a rounded shell the size of the body's own helmet (which the body shader hides above CAP), open at the
 // face with cheek guards, a brow over a visor band across the eyes, and a glowing strip in the visor.
-export const CAP = 0.092; // the top share of the body's height that the new helmet replaces
+export const CAP = 0.118; // the top share of the body's height that the new helmet replaces
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 function fitHelmet(verts, fwd) {
   const up = new THREE.Vector3(0, 1, 0), right = new THREE.Vector3().crossVectors(fwd, up).normalize();
@@ -291,7 +291,7 @@ function fitHelmet(verts, fwd) {
   const pct = (arr, q) => { const s = arr.slice().sort((a, b) => a - b); return s[Math.floor((s.length - 1) * q)]; };
   const xs = cap.map((p) => p.dot(right)), zs = cap.map((p) => p.dot(fwd));
   const x0 = pct(xs, 0.02), x1 = pct(xs, 0.98), z0 = pct(zs, 0.02), z1 = pct(zs, 0.8);
-  const rx = ((x1 - x0) / 2) * 1.04, rz = ((z1 - z0) / 2) * 1.08, ry = Math.max(rx, rz);
+  const rx = ((x1 - x0) / 2) * 0.94, rz = ((z1 - z0) / 2) * 0.98, ry = Math.max(rx, rz);
   const C = right.clone().multiplyScalar((x0 + x1) / 2).addScaledVector(fwd, (z0 + z1) / 2 + rz * 0.05).setY(top + 0.006 * H - ry);
   const dirOf = (phi, a) => up.clone().multiplyScalar(Math.cos(phi)).addScaledVector(fwd, Math.sin(phi) * Math.cos(a)).addScaledVector(right, Math.sin(phi) * Math.sin(a));
   const N = 2.6;
@@ -300,12 +300,13 @@ function fitHelmet(verts, fwd) {
     const x = d.dot(right) / rx, y = d.y / (d.y < 0 ? ry * 1.25 : ry), z = d.dot(fwd) / rz;
     const r = 1 / Math.pow(Math.abs(x) ** N + Math.abs(y) ** N + Math.abs(z) ** N, 1 / N);
     // cheek guards taper in toward the jaw; a low brow ridge rises over the visor
-    return r * (1 - 0.14 * Math.max(0, -d.y)) * (1 + 0.05 * smooth(0.6, 1.0, Math.cos(a)) * smooth(1.0, 1.3, phi) * (1 - smooth(1.35, 1.6, phi)));
+    return r * (1 - 0.06 * Math.max(0, -d.y)) * (1 + 0.1 * smooth(0.6, 1.0, Math.cos(a)) * smooth(1.0, 1.3, phi) * (1 - smooth(1.35, 1.6, phi)))
+      * (1 + 0.1 * smooth(1.6, 2.2, phi) * smooth(2.0, 2.9, Math.abs(a)));
   };
   const TH = 0.013;
   const point = (phi, a, lift) => C.clone().addScaledVector(dirOf(phi, a), R(phi, a) + lift);
   // the shell's lower edge: high over the brow, low over the cheeks and the nape
-  const yBrow = top - 0.05 * H, yEye = top - 0.1 * H, ySide = top - 0.128 * H, yBack = top - 0.136 * H;
+  const yBrow = top - 0.05 * H, yEye = top - 0.122 * H, ySide = top - 0.13 * H, yBack = top - 0.138 * H;
   const edgeY = (a) => { const c = Math.abs(a); return c < 1.5 ? yBrow + (ySide - yBrow) * smooth(0.95, 1.45, c) : ySide + (yBack - ySide) * smooth(1.6, 3.0, c); };
   const phiAt = (a, y) => { let lo = 0.05, hi = 2.9; for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2; if (point(m, a, 0).y > y) lo = m; else hi = m; } return (lo + hi) / 2; };
   const NU = 14, NV = 48;
@@ -317,8 +318,9 @@ function fitHelmet(verts, fwd) {
   }, TH, (i, j) => {
     const a = -Math.PI + (2 * Math.PI * j) / NV;
     // a trim stripe runs over the crown from brow to nape, so the helmet reads from behind
-    const crown = Math.abs(Math.sin(a) * Math.sin(edge[j] * (i / NU))) < 0.2 && i < NU - 2;
-    return [i >= NU - 1 || crown ? 1 : 0, crown ? 1 : 0];
+    // the rim in trim, then a grey band round the lower third
+    const band = NU * 0.52; // one row all the way round, so the band's edge stays a clean line
+    return [i >= NU - 1 ? 1 : i > band ? -1 : 0, Math.abs(Math.sin(a)) < 0.1 && Math.cos(a) > 0 ? 1 : 0];
   }, true);
   // visor: from the shell's edge down to below the eyes, slightly recessed under the brow; it closes to nothing
   // where the cheek guards already come lower
@@ -351,18 +353,30 @@ function fitHelmet(verts, fwd) {
     const phi = front ? Math.max(0.04, edge[NV / 2] * 0.9 * (1 - t / 0.42)) : Math.max(0.04, ((t - 0.42) / 0.58) * edge[0] * 0.92);
     const q = point(phi, front ? 0 : Math.PI, TH + 0.003 + lift + 0.014 * Math.sin(t * Math.PI)).addScaledVector(right, (j - 1) * 0.012);
     return [q.x, q.y, q.z];
-  }, 0.008, () => [1, 1]);
+  }, 0.008, () => [0, 0]);
   const side = point(edge[Math.round(NV * 0.75)] * 0.62, Math.PI / 2, TH + 0.012);
   // comm pucks over the ears break up the helmet's round outline
   const ears = mergeGeometries([-1, 1].map((sg2) => {
     const a = (sg2 * Math.PI) / 2, ph = phiAt(a, top - 0.078 * H), q = point(ph, a, TH + 0.005);
-    return new THREE.CylinderGeometry(0.018, 0.022, 0.012, 18).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
+    return new THREE.CylinderGeometry(0.016, 0.019, 0.006, 18).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
   }));
   const earCaps = mergeGeometries([-1, 1].map((sg2) => {
     const a = (sg2 * Math.PI) / 2, ph = phiAt(a, top - 0.078 * H), q = point(ph, a, TH + 0.014);
     return new THREE.CylinderGeometry(0.01, 0.01, 0.006, 14).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
   }));
-  return { shell: shellGeo, visor: vg, strip: sg, crest, ears, earCaps, spotterAt: side, centre: C, right, fwd, up };
+  const aerial = (() => {
+    const a = -Math.PI / 2, ph = phiAt(a, top - 0.078 * H), base = point(ph, a, TH + 0.006);
+    const dir = up.clone().multiplyScalar(0.94).addScaledVector(fwd, -0.32).addScaledVector(right, -0.1).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    const rod = new THREE.CylinderGeometry(0.0022, 0.0038, 0.19, 6).translate(0, 0.095, 0).applyQuaternion(q).translate(base.x, base.y, base.z);
+    const foot = new THREE.CylinderGeometry(0.007, 0.0095, 0.03, 10).translate(0, 0.012, 0).applyQuaternion(q).translate(base.x, base.y, base.z);
+    return mergeGeometries([rod, foot]);
+  })();
+  const rearAt = (() => { const a = Math.PI, ph = phiAt(a, top - 0.088 * H); return { q: point(ph, a, TH + 0.009), n: dirOf(ph, a) }; })();
+  const rear = new THREE.BoxGeometry(0.056, 0.034, 0.02).lookAt(rearAt.n).translate(rearAt.q.x, rearAt.q.y, rearAt.q.z);
+  const rl = rearAt.q.clone().addScaledVector(rearAt.n, 0.011).addScaledVector(up, 0.007).addScaledVector(right, 0.016);
+  const rearLight = new THREE.SphereGeometry(0.0045, 8, 6).translate(rl.x, rl.y, rl.z);
+  return { shell: shellGeo, visor: vg, strip: sg, crest, ears, earCaps, aerial, rear, rearLight, spotterAt: side, centre: C, right, fwd, up };
 }
 
 // Fit (or fetch) the armour for this body. model must be posed (the idle at time 0) and its world matrices current.
@@ -385,7 +399,7 @@ export function fitBody(key, model, P = 'mixamorig') {
   const h = bone('Head') && fitHelmet(verts, fwd);
   if (h) {
     const inv = bone('Head').matrixWorld.clone().invert();
-    for (const k of ['shell', 'visor', 'strip', 'crest', 'ears', 'earCaps']) h[k].applyMatrix4(inv);
+    for (const k of ['shell', 'visor', 'strip', 'crest', 'ears', 'earCaps', 'aerial', 'rear', 'rearLight']) h[k].applyMatrix4(inv);
     // the rangefinder: a small housing and lens on the right side
     const s = h.spotterAt;
     const box = new THREE.BoxGeometry(0.026, 0.03, 0.055).lookAt(h.fwd).translate(s.x, s.y, s.z);
@@ -399,7 +413,7 @@ export function fitBody(key, model, P = 'mixamorig') {
 
 // ------------------------------------------------------------ materials and dressing
 function armourMat(rim) {
-  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.56, metalness: 0.08, envMapIntensity: 1.0 });
+  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.62, metalness: 0.08, envMapIntensity: 0.9 });
   m.userData.uniforms = { uArmour: { value: new THREE.Color() }, uTrim: { value: new THREE.Color() }, uPattern: { value: 0 } };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, m.userData.uniforms, { uRim: rim });
@@ -415,8 +429,9 @@ function armourMat(rim) {
           return mix(mix(mix(ah(i), ah(i + vec3(1,0,0)), f.x), mix(ah(i + vec3(0,1,0)), ah(i + vec3(1,1,0)), f.x), f.y),
                      mix(mix(ah(i + vec3(0,0,1)), ah(i + vec3(1,0,1)), f.x), mix(ah(i + vec3(0,1,1)), ah(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-        float edge = min(vPaint.x, 1.0), rimSide = step(1.5, vPaint.x);
-        float tm = uPattern < 0.5 ? edge : (uPattern < 1.5 ? vPaint.y : 0.0);
+        // x: 0 plain, 1 trim edge, 2 rim side, -1 the helmet's grey band (negative, so the band's edge never passes through trim)
+        float grey = smoothstep(-0.3, -0.7, vPaint.x), edge = clamp(vPaint.x, 0.0, 1.0), rimSide = step(1.5, vPaint.x);
+        float tm = (uPattern < 0.5 ? edge : (uPattern < 1.5 ? vPaint.y : 0.0)) * (1.0 - grey);
         diffuseColor.rgb = mix(uArmour, uTrim, tm) * mix(1.0, 0.7, rimSide);
         // panel seams across the plate, a darker chamfer at the edge, grime, and paint worn to metal at edges and rims
         float ed = min(min(vArm.x, 1.0 - vArm.x), min(vArm.y, 1.0 - vArm.y));
@@ -424,19 +439,20 @@ function armourMat(rim) {
         float seam = (1.0 - smoothstep(0.008, 0.02, min(abs(vArm.y - 0.36), abs(vArm.y - 0.69)))) * step(0.05, ed) * (1.0 - rimSide);
         float wear = smoothstep(0.62, 0.9, gn * 0.8 + (1.0 - smoothstep(0.0, 0.05, ed)) * 0.5 + rimSide * 0.3);
         diffuseColor.rgb *= (1.0 - seam * 0.75) * (0.9 + 0.16 * gn) * mix(1.0, 0.8, (1.0 - smoothstep(0.012, 0.03, ed)) * (1.0 - rimSide));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.21, 0.23, 0.27), grey);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.43, 0.45), wear * 0.75);`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = clamp(roughnessFactor + (gn - 0.5) * 0.35 + seam * 0.3 - wear * 0.12, 0.2, 1.0);')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  float rimF = 1.0 - saturate(dot(normal, normalize(vViewPosition)));\n  totalEmissiveRadiance += uRim * rimF * rimF * rimF;');
   };
-  m.customProgramCacheKey = () => 'armour-plate-3';
+  m.customProgramCacheKey = () => 'armour-plate-5';
   return m;
 }
 
 // Dress a soldier: plates on their bones, the helmet on the head. Returns a handle to repaint them.
 export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
   const bone = (n) => model.getObjectByName(P + n);
-  const main = armourMat(rim), clsMat = armourMat(rim);
+  const main = armourMat(rim), clsMat = armourMat(rim), shMat = armourMat(rim), shClsMat = armourMat(rim), backMat = armourMat(rim);
   const visorMat = new THREE.MeshStandardMaterial({ color: '#0a0f15', roughness: 0.06, metalness: 0.85, envMapIntensity: 1.6 });
   const stripMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
   const meshes = [];
@@ -447,7 +463,7 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
     meshes.push(m);
     return m;
   };
-  for (const p of fit.plates) put(p.geo, p.cls ? clsMat : main, p.at);
+  for (const p of fit.plates) put(p.geo, p.id === 'back' ? backMat : /^shoulder/.test(p.id) ? (p.cls ? shClsMat : shMat) : p.cls ? clsMat : main, p.at);
   let crest = null, spotter = null;
   if (fit.helmet) {
     put(fit.helmet.shell, main, 'Head');
@@ -456,11 +472,13 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
     crest = put(fit.helmet.crest, main, 'Head');
     const gear = new THREE.MeshStandardMaterial({ color: '#1e2126', roughness: 0.4, metalness: 0.7 });
     spotter = put(fit.helmet.spotter, gear, 'Head');
+    put(fit.helmet.aerial, gear, 'Head');
+    put(fit.helmet.rear, gear, 'Head');
+    put(fit.helmet.rearLight, stripMat, 'Head').castShadow = false;
     put(fit.helmet.ears, main, 'Head');
-    put(fit.helmet.earCaps, gear, 'Head');
   }
   const handle = {
-    meshes, main, clsMat, visorMat, stripMat,
+    meshes, main, clsMat, shMat, shClsMat, backMat, visorMat, stripMat,
     paint(k) {
       const c = kitColours(k);
       main.userData.uniforms.uArmour.value.set(c.armour);
@@ -469,6 +487,16 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
       clsMat.userData.uniforms.uArmour.value.set(c.armour);
       clsMat.userData.uniforms.uTrim.value.set(CLASS_TRIM[cls] || c.trim);
       clsMat.userData.uniforms.uPattern.value = 0;
+      // shoulders sit a shade down toward gunmetal; the back panel is dark kit
+      const sh = new THREE.Color(c.armour).lerp(new THREE.Color('#6c7178'), 0.55);
+      for (const [m, tr] of [[shMat, c.trim], [shClsMat, CLASS_TRIM[cls] || c.trim]]) {
+        m.userData.uniforms.uArmour.value.copy(sh);
+        m.userData.uniforms.uTrim.value.set(tr);
+        m.userData.uniforms.uPattern.value = m === shClsMat ? 0 : c.pattern;
+      }
+      backMat.userData.uniforms.uArmour.value.set('#3a3d42');
+      backMat.userData.uniforms.uTrim.value.set(c.trim);
+      backMat.userData.uniforms.uPattern.value = 2;
       stripMat.color.set(c.visor).multiplyScalar(2.2);
       if (crest) crest.visible = c.helmet === 1;
       if (spotter) spotter.visible = c.helmet === 2;

@@ -213,6 +213,10 @@ export class UI {
     el.style.top = `${p.y - 18}px`;
     this.pops.appendChild(el);
     setTimeout(() => el.remove(), 1700);
+    // remembered so a bark never lands on a number
+    const now = performance.now();
+    this.popsAt = (this.popsAt || []).filter((q) => q.t > now - 1700);
+    this.popsAt.push({ x: p.x, y: p.y - 18, t: now });
   }
   // A soldier calls something out: a short line in a tag over their head, at most one every few seconds each.
   bark(u, kind, vars) {
@@ -230,8 +234,13 @@ export class UI {
     const el = document.createElement('div');
     el.className = 'bark';
     el.innerHTML = `<b>${esc(u.callsign || u.name.split(' ')[0])}</b>${esc(line)}`;
-    el.style.left = `${Math.max(90, Math.min(innerWidth - 90, p.x))}px`;
-    el.style.top = `${Math.max(70, p.y - 26)}px`;
+    let left = Math.max(90, Math.min(innerWidth - 90, p.x));
+    const top = Math.max(70, p.y - 64);
+    // a damage number nearby: the bark moves aside
+    const hit = (this.popsAt || []).find((q) => q.t > now - 1700 && Math.abs(q.x - left) < 120 && q.y - 70 < top + 44 && top < q.y + 24);
+    if (hit) left = hit.x + (hit.x + 250 < innerWidth ? 150 : -150);
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
     this.pops.appendChild(el);
     setTimeout(() => el.remove(), 2500);
   }

@@ -360,7 +360,7 @@ const STYLE = {
   blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'metal_plate_02', roofColor: '#8c949e', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
   barn: { wall: 'weathered_planks', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#b04a35' },
   shed: { wall: 'concrete_block_wall', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#8a8a84', door: '#5a6066', pitch: 0.5 },
-  metal: { wall: 'rusty_corrugated_iron', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#9a9c98', door: '#6b7d8a', pitch: 0.45 },
+  metal: { wall: 'painted_metal_shutter', wallColor: '#8d98a4', roof: 'rusty_corrugated_iron', roofColor: '#7d8288', floor: 'concrete_floor_02', trim: '#a8822e', door: '#28313c', pitch: 0.45 },
 };
 
 function roofGeometry(x0, x1, z0, z1, hEave, hRidge, alongX) {
@@ -435,7 +435,7 @@ function gableGeometry(x0, x1, z0, z1, h, rise, alongX, inset) {
 function buildBuilding(parent, map, b, rng, isNight) {
   const st = STYLE[b.style] || STYLE.brick;
   const wallM = pbr(st.wall, { color: st.wallColor || '#ffffff' });
-  const trimM = plain(st.trim, { rough: 0.6 });
+  const trimM = plain(st.trim === '#ff7a2e' ? '#c8642a' : st.trim, { rough: 0.7 });
   const plinthM = pbr('concrete_floor_02', { color: '#b9b5aa' });
   const glassM = plain('#1c2630', { rough: 0.05, metal: 0.1, opacity: 0.62, env: 1.6 });
   const litM = plain('#ffcf8a', { glow: '#ffb35c', gi: 1.6, rough: 0.5 });
@@ -611,7 +611,9 @@ function buildBuilding(parent, map, b, rng, isNight) {
     pipe.castShadow = true;
     parent.add(pipe);
   }
-  return { b, roof, mats: [roofMat, gableMat, trimMat, gutterMat, ...roofMats], fade: 1 };
+  // the roof's shape, so the view can tell when it really stands between the camera and someone
+  const shape = { x0: x0 - t, x1: x1 + t, z0: y0 - t, z1: y1 + t, h: WALL_H + 0.07 + upper, slope: st.pitch * 0.6, oh: 0.34 };
+  return { b, roof, shape, mats: [roofMat, gableMat, trimMat, gutterMat, ...roofMats], fade: 1 };
 }
 
 // ------------------------------------------------------------ cover props
@@ -643,7 +645,7 @@ const out_trees = [];
 // take it fully. One shared colour, set per mission, so cached plant materials follow whichever world is loaded.
 const VEG = {
   town: { color: '#5f8f84', amount: 0.32, mask: [0, 0, 1, 0], leaf: '#3fa595' },
-  farm: { color: '#86708c', amount: 0.22, mask: [1, 0, 0, 1], leaf: '#9a5a9a' },
+  farm: { color: '#7a6c94', amount: 0.0, mask: [1, 0, 0, 1], leaf: '#7258a0' },
   yard: { color: '#a89a5a', amount: 0.25, mask: [0, 0, 0, 0], leaf: '#c9a040' },
 };
 const LEAF = { color: { value: new THREE.Color('#ffffff') }, amount: { value: 0 } };
@@ -715,7 +717,7 @@ function buildCover(parent, o, map, rng, biome) {
         for (let row = 0; row < 3; row++) for (let k = -1; k <= 1; k++) {
           const off = k * 0.32 + (row % 2) * 0.16 - 0.08;
           const bag = place(g, 'cement_bag', along ? (rng() - 0.5) * 0.04 : off, along ? off : (rng() - 0.5) * 0.04, { fitW: 0.36, y: row * 0.14, rot: (along ? 0 : Math.PI / 2) + (rng() - 0.5) * 0.25 });
-          if (bag) bag.traverse((m) => { if (m.isMesh && !m.material.userData.burlap) { m.material = m.material.clone(); m.material.color.set('#8f7c5c'); m.material.userData.burlap = true; } });
+          if (bag) bag.traverse((m) => { if (m.isMesh && !m.material.userData.burlap) { m.material = m.material.clone(); m.material.map = null; m.material.color.set('#6f6450'); m.material.roughness = 0.95; m.material.userData.burlap = true; } });
         }
         break;
       }
@@ -884,6 +886,7 @@ export function buildWorld(map, time, parent) {
   dress(decor, map, rng, biome, night, out);
   outside(decor, map, rng, biome);
   mergeStatic(decor);
+  horizon(parent, map, rng, biome);
   return out;
 }
 
@@ -1010,9 +1013,9 @@ function dress(parent, map, rng, biome, night, out) {
     }
   }
   const clutter = {
-    town: [['trashbag', 0.35], ['cardboard_box_01', 0.3], ['metal_trash_can', 0.55], ['power_box_01', 0.5], ['utility_box_01', 0.6], ['utility_box_02', 0.6], ['ammo_box', 0.3], ['propane_tank', 0.4], ['plastic_crate_01', 0.3]],
-    farm: [['old_tyre', 0.4], ['tree_stump_01', 0.6], ['propane_tank', 0.4], ['cement_bag', 0.4], ['dead_tree_trunk', 1.2], ['wooden_barrels_01', 0.7], ['portable_generator', 0.55]],
-    yard: [['old_tyre', 0.42], ['cement_bag', 0.42], ['ammo_box', 0.3], ['propane_tank', 0.4], ['portable_generator', 0.55], ['power_box_01', 0.5], ['trashbag', 0.35], ['plastic_crate_01', 0.3]],
+    town: [['metal_trash_can', 0.55], ['power_box_01', 0.5], ['utility_box_01', 0.6], ['utility_box_02', 0.6], ['ammo_box', 0.3], ['plastic_crate_01', 0.3]],
+    farm: [['tree_stump_01', 0.6], ['dead_tree_trunk', 1.2], ['wooden_barrels_01', 0.7], ['portable_generator', 0.55], ['wooden_crate_02', 0.5]],
+    yard: [['ammo_box', 0.3], ['portable_generator', 0.55], ['power_box_01', 0.5], ['plastic_crate_01', 0.3], ['old_military_crate', 0.6], ['concrete_road_barrier', 0.9]],
     spire: [['boulder_01', 0.45]],
   }[biome];
   let placed = 0;
@@ -1043,6 +1046,19 @@ function dress(parent, map, rng, biome, night, out) {
       if (corner) continue;
       place(parent, 'security_light', x + ox * 0.22 + (oy ? 0.32 : 0), y + oy * 0.22 + (ox ? 0.32 : 0), { fitW: 0.22, y: 1.72, rot: Math.atan2(ox, oy) });
     }
+  }
+  // one aircon unit on an outside wall of each colony prefab, at shoulder height
+  if (biome === 'town' && variants('exterior_aircon_unit').length) for (const b of map.buildings || []) {
+    const x0 = b.x0, y0 = b.y0, x1 = b.x0 + b.w - 1, y1 = b.y0 + b.h - 1, spots = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const o = map.objAt(x, y);
+      if (!o || o.type !== 'wall' || ((x === x0 || x === x1) && (y === y0 || y === y1))) continue;
+      const [ox, oy] = y === y0 ? [0, -1] : y === y1 ? [0, 1] : x === x0 ? [-1, 0] : [1, 0];
+      if (map.inside(x + ox, y + oy) && free(x + ox, y + oy)) spots.push([x, y, ox, oy]);
+    }
+    if (!spots.length) continue;
+    const [x, y, ox, oy] = spots[Math.floor(rng() * spots.length)];
+    place(parent, 'exterior_aircon_unit', x + ox * (WALL_T / 2 + 0.17), y + oy * (WALL_T / 2 + 0.17), { fitW: 0.55, y: 1.2, rot: Math.atan2(ox, oy) });
   }
   // furniture along the inside walls (looks only; units still stand in the middle of tiles)
   for (const b of map.buildings || []) {
@@ -1086,7 +1102,7 @@ function dress(parent, map, rng, biome, night, out) {
     parent.add(im);
   }
   // grass clumps on grass tiles, instanced
-  if (biome === 'town' || biome === 'farm') {
+  if (biome === 'town' || biome === 'farm' || biome === 'yard') {
     const light = (v) => { let n = 0; v.obj.traverse((o) => { if (o.isMesh) n += o.geometry.attributes.position.count; }); return n < 900; };
     const vs = [...variants('grass_medium_01'), ...variants('grass_medium_02')].filter(light);
     if (vs.length) {
@@ -1094,6 +1110,22 @@ function dress(parent, map, rng, biome, night, out) {
       const lists = vs.map(() => []);
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
       for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+        if (biome === 'yard') {
+          // the port: gold scrub at the foot of containers, walls and barriers
+          const nb = DIR4.find(([dx, dy]) => map.inside(x + dx, y + dy) && map.objAt(x + dx, y + dy));
+          if (nb && free(x, y) && T(x, y) !== 'road' && rng() < 0.3) {
+            const cx = x + nb[0] * 0.38, cz = y + nb[1] * 0.38;
+            for (let k = 5 + Math.floor(rng() * 5); k > 0; k--) {
+              const vi = Math.floor(rng() * vs.length), sz = vs[vi].size;
+              const sy = (0.18 + rng() * 0.22) / Math.max(0.04, sz.y);
+              const sw = Math.min(sy, 0.4 / Math.max(0.02, sz.x, sz.z));
+              q.setFromAxisAngle(up, rng() * 6.28);
+              const px = cx + (nb[1] ? (rng() - 0.5) * 0.8 : (rng() - 0.5) * 0.15), pz = cz + (nb[0] ? (rng() - 0.5) * 0.8 : (rng() - 0.5) * 0.15);
+              lists[vi].push(m4.clone().compose(new THREE.Vector3(px, 0, pz), q, new THREE.Vector3(sw, sy, sw)));
+            }
+          }
+          continue;
+        }
         if (T(x, y) !== 'grass') continue;
         const edges = DIR4.filter(([dx, dy]) => !map.inside(x + dx, y + dy) || T(x + dx, y + dy) !== 'grass' || map.objAt(x + dx, y + dy));
         const n = per + edges.length;
@@ -1127,6 +1159,82 @@ function dress(parent, map, rng, biome, night, out) {
         v.obj.traverse((o) => { if (o.isMesh && o.material) { o.material.alphaTest = 0.45; o.material.transparent = false; o.material.side = THREE.DoubleSide; alienFoliage(o.material); } });
         instanced(parent, v.obj, lists[i]);
       });
+      // crops on the farm's fields: two rows of knee-high leafy plants a tile
+      if (biome === 'farm') {
+        const [geo, mat] = cropParts();
+        const list = [];
+        for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+          if (T(x, y) !== 'field' || !free(x, y)) continue;
+          for (const dz of [-0.25, 0.25]) for (const dx of [-0.33, 0, 0.33]) {
+            const s2 = 0.5 + rng() * 0.3;
+            q.setFromAxisAngle(up, rng() * 6.28);
+            list.push(m4.clone().compose(new THREE.Vector3(x + dx + (rng() - 0.5) * 0.08, 0, y + dz + (rng() - 0.5) * 0.06), q, new THREE.Vector3(s2, s2 * (0.85 + rng() * 0.3), s2)));
+          }
+        }
+        if (list.length) {
+          const im = new THREE.InstancedMesh(geo, mat, list.length);
+          list.forEach((m, i) => im.setMatrixAt(i, m));
+          im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; im.userData.noAO = true;
+          parent.add(im);
+        }
+      }
+    }
+  }
+}
+
+// A crop plant: three crossed cards of broad violet leaves fanning from the soil.
+let cropGeo = null, cropMat = null;
+function cropParts() {
+  if (cropGeo) return [cropGeo, cropMat];
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d'), r = makeRng(41);
+  for (let i = 0; i < 22; i++) {
+    const a = -Math.PI / 2 + (r() - 0.5) * 2.0, len = 120 + r() * 120, w = 14 + r() * 16;
+    const tx = 128 + Math.cos(a) * len, ty = 256 + Math.sin(a) * len;
+    const gr = g.createLinearGradient(128, 256, tx, ty);
+    gr.addColorStop(0, '#1d1a2a'); gr.addColorStop(0.5, r() < 0.5 ? '#4c4068' : '#54466e'); gr.addColorStop(1, r() < 0.5 ? '#7e70a4' : '#8a7aa8');
+    g.fillStyle = gr;
+    const nx = -Math.sin(a) * w, ny = Math.cos(a) * w;
+    g.beginPath();
+    g.moveTo(128, 256);
+    g.quadraticCurveTo((128 + tx) / 2 + nx, (256 + ty) / 2 + ny, tx, ty);
+    g.quadraticCurveTo((128 + tx) / 2 - nx, (256 + ty) / 2 - ny, 128, 256);
+    g.fill();
+    g.strokeStyle = 'rgba(240,200,240,.35)'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(128, 256); g.lineTo(tx, ty); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  cropMat = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75 });
+  const parts = [0, 1, 2].map((k) => new THREE.PlaneGeometry(0.62, 0.62).translate(0, 0.31, 0).rotateY((k * Math.PI) / 3));
+  cropGeo = mergeGeometries(parts);
+  return [cropGeo, cropMat];
+}
+
+// Low hills on the horizon, with a few tall masts blinking on them, so low cameras see land beyond the map
+// that fades into the fog.
+function horizon(parent, map, rng, biome) {
+  const cx = map.w / 2, cz = map.h / 2, R = Math.max(map.w, map.h) / 2;
+  const hillM = new THREE.MeshStandardMaterial({ color: { town: '#46524c', farm: '#54473f', yard: '#43464c', spire: '#2e2836' }[biome] || '#46524c', roughness: 1, metalness: 0 });
+  const mastM = new THREE.MeshStandardMaterial({ color: '#2a2d33', roughness: 0.7, metalness: 0.5 });
+  const tipM = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff3a2a').multiplyScalar(2) });
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2 + rng() * 0.3, d = R + 42 + rng() * 40;
+    const rx = 16 + rng() * 22, ry = 4 + rng() * 8, rz = 12 + rng() * 18;
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 10), hillM);
+    hill.scale.set(rx, ry, rz);
+    hill.position.set(cx + Math.cos(a) * d, -ry * 0.25, cz + Math.sin(a) * d);
+    hill.rotation.y = rng() * 6.28;
+    hill.userData.noAO = true;
+    parent.add(hill);
+    if (biome !== 'spire' && rng() < 0.35) {
+      const h = 10 + rng() * 10, mx = hill.position.x + (rng() - 0.5) * rx * 0.6, mz = hill.position.z + (rng() - 0.5) * rz * 0.6;
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.5, h, 6), mastM);
+      mast.position.set(mx, ry * 0.6 + h / 2, mz);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), tipM);
+      tip.position.set(mx, ry * 0.6 + h + 0.3, mz);
+      parent.add(mast, tip);
     }
   }
 }

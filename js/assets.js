@@ -134,7 +134,7 @@ export const BIOMES = {
     scale: [3.4, 3.0, 3.0, 2.6],
     tex: ['rusty_corrugated_iron', 'concrete_block_wall', 'painted_metal_shutter', 'concrete_floor_02', 'rusty_metal_02'],
     props: ['wooden_crate_01', 'wooden_crate_02', 'old_military_crate', 'wooden_military_crate', 'plastic_crate_01', 'Barrel_01', 'Barrel_02', 'barrel_03', 'concrete_road_barrier',
-      'concrete_road_barrier_02', 'old_tyre', 'cement_bag', 'ammo_box', 'propane_tank', 'portable_generator', 'power_box_01', 'street_lamp_01', 'trashbag', 'rollershutter_door', 'security_light'],
+      'concrete_road_barrier_02', 'ammo_box', 'portable_generator', 'power_box_01', 'street_lamp_01', 'rollershutter_door', 'security_light', 'grass_medium_01', 'grass_medium_02'],
     trees: ['spruce'],
   },
   spire: {
