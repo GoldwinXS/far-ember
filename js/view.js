@@ -22,6 +22,9 @@ const LIGHTS = {
 };
 const BLUE = new THREE.Color('#47a8f5'), YELLOW = new THREE.Color('#ff9a5a'), ORANGE = new THREE.Color('#ff7a3d'), GREEN = new THREE.Color('#6fdc7a');
 const v3 = new THREE.Vector3();
+// bolt colours: Ember Company fires orange, the Pale fire cyan
+const BOLT = { ember: '#ff6a2a', pale: '#5ff0ff' };
+let _boltGeo = null;
 
 export class View {
   constructor(canvas) {
@@ -119,6 +122,7 @@ export class View {
     this.stationNow = null;
     this.clearWorld();
     this.map = null;
+    this.skyDome = null;
     this.fogCanvas = null;
     this.bounds = { w: 24, h: 36 };
     this.carrierEnv ||= hangarEnv(this.renderer);
@@ -245,6 +249,7 @@ export class View {
     this.stationNow = null;
     this.clearWorld();
     this.carrier = null;
+    this.skyDome = null;
     this.ships = [];
     this.map = map;
     this.bounds = { w: map.w, h: map.h };
@@ -339,10 +344,25 @@ export class View {
     }
     this.torch = null;
     if (key === 'night' || key === 'dusk') {
-      this.torch = new THREE.PointLight('#dfe8ff', key === 'night' ? 2 : 1.5, 9, 1.4);
+      this.torch = new THREE.PointLight('#dfe8ff', key === 'night' ? 1.1 : 1.0, 9, 1.4);
       this.world.add(this.torch);
     }
     fireBook();
+    this.world.add(frontierSky(cx, cz, map.w));
+    // a sky dome: deep at the zenith, the fog's colour at the horizon, so the far ground melts into it
+    const zen = { day: '#4f74ad', dusk: '#2b2d4a', night: '#070b16', spire: '#2a2240' }[map.biome === 'spire' ? (time === 'night' ? 'night' : 'spire') : key] || '#4f74ad';
+    this.skyDome = new THREE.Mesh(new THREE.SphereGeometry(195, 32, 16), new THREE.ShaderMaterial({
+      uniforms: { uZen: { value: new THREE.Color(zen) }, uHor: { value: new THREE.Color(L.fog) } },
+      side: THREE.BackSide, depthWrite: false, fog: false,
+      vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 uZen; uniform vec3 uHor; varying vec3 vD;
+        void main(){ vec3 c = mix(uHor, uZen, smoothstep(0.0, 0.55, vD.y)); gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
+        }`,
+    }));
+    this.skyDome.renderOrder = -10;
+    this.skyDome.userData.noAO = true;
+    this.world.add(this.skyDome);
     this.trees = w.trees || [];
     const fc = document.createElement('canvas');
     fc.width = map.w; fc.height = map.h;
@@ -486,9 +506,9 @@ export class View {
     const dir = b.clone().sub(a).normalize();
     const right = new THREE.Vector3(-dir.z, 0, dir.x);
     // right shoulder first, then the left, then wider: skip any spot with a wall behind it or a post in the sight line
-    for (const side of [0.75, -0.75, 1.15, -1.15]) {
-      const p = a.clone().addScaledVector(dir, -1.7).addScaledVector(right, side);
-      p.y = 1.55;
+    for (const side of [0.95, -0.95, 1.35, -1.35]) {
+      const p = a.clone().addScaledVector(dir, -2.5).addScaledVector(right, side);
+      p.y = 1.75;
       if (this.camBlocked(p) || this.postInSight(p, b)) continue;
       this.cine = { p, t: b.clone().setY(0.7) };
       this.skyOn(true);
@@ -505,7 +525,8 @@ export class View {
   }
   // Close cameras see the horizon: show the blurred sky instead of a flat fog colour.
   skyOn(on) {
-    if (this.carrier) return;
+    // missions have their own sky dome that meets the fog at the horizon
+    if (this.carrier || this.skyDome) return;
     if (on && this.scene.environment) {
       this.scene.background = this.scene.environment;
       this.scene.backgroundBlurriness = 0.3;
@@ -518,9 +539,18 @@ export class View {
     const dir = b.clone().sub(a).normalize();
     const p = a.clone().addScaledVector(dir, -2.5);
     p.y = 2.2;
-    if (this.camBlocked(p)) return;
+    if (this.camBlocked(p) || !this.clearView(p, b)) return;
     this.cine = { p, t: b.clone().setY(0.9) };
     this.skyOn(true);
+  }
+  // Does a straight line from the camera to the target stay clear of walls?
+  clearView(p, b) {
+    if (!this.map) return true;
+    for (let k = 0.15; k < 0.92; k += 0.07) {
+      const x = Math.round(p.x + (b.x - p.x) * k), z = Math.round(p.z + (b.z - p.z) * k);
+      if (this.map.inside(x, z) && this.map.blocksLOS(x, z)) return false;
+    }
+    return true;
   }
   endCine() { this.cine = null; this.stationNow = null; this.skyOn(false); }
   // A fixed low camera for the menu lineup: eye at (px, 1.55, pz), looking at (tx, 0.8, tz).
@@ -995,80 +1025,140 @@ export class View {
       to.y += (Math.random() - 0.4) * 0.6;
     }
     const pale = shooter.side === 'pale';
-    const spec = { shotgun: [5, 0.12], mg: [3, 0.07], longrifle: [1, 0], rifle: [2, 0.09] }[kind] || [1, 0];
-    const color = pale ? '#7ff4ff' : '#fff0c4';
-    this.flash.color.set(pale ? '#7ff4ff' : '#ffc070');
+    // bolts per trigger pull, the gap between them, their size and speed
+    const spec = pale ? [shooter.kind === 'brute' || shooter.kind === 'overseer' ? 3 : 2, 0.12, 1.3, 32]
+      : ({ shotgun: [4, 0.025, 0.8, 40], mg: [3, 0.09, 1.0, 42], longrifle: [1, 0, 1.25, 70], rifle: [2, 0.11, 1.0, 40] }[kind] || [1, 0, 1, 40]);
+    const color = pale ? BOLT.pale : BOLT.ember;
+    this.flash.color.set(color);
+    let arrive = Promise.resolve();
     for (let i = 0; i < spec[0]; i++) {
       const spread = kind === 'shotgun' ? new THREE.Vector3((Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.7) : new THREE.Vector3();
-      this.tracer(from, to.clone().add(spread), color, pale ? 0.022 : kind === 'longrifle' ? 0.014 : 0.011);
+      arrive = this.bolt(from, to.clone().add(spread), color, spec[2], spec[3]);
       this.muzzleFlash(from, color);
       if (spec[1]) await this.wait(spec[1]);
     }
-    await this.wait(Math.min(0.25, from.distanceTo(to) / 70) + 0.05);
-    this.sparks(to, hit ? (target.side === 'pale' ? '#9ff6ff' : '#ff8060') : '#ffe2a0', hit ? 36 : 12, hit ? 0.6 : 0.5, hit ? 1.2 : 1, hit ? 0.2 : 0.12);
-    if (hit) {
-      this.hitFlinch(target);
-      const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ffffff', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
-      fl.position.copy(to);
-      fl.scale.setScalar(0.9);
-      this.fxRoot.add(fl);
-      const fs = this.time;
-      this.fx.push(() => { const k = (this.time - fs) / 0.08; fl.material.opacity = 1 - k; if (k >= 1) { fl.removeFromParent(); fl.material.dispose(); return false; } return true; });
-      if (target.side === 'pale') this.puff(to, '#7ff4ff', 0.45, 0.7, 0.4);
-    }
-    else {
-      const ground = to.clone();
-      ground.y = 0.1;
-      this.puff(ground, '#8a8070', 0.5, 0.9);
-      const mark = new THREE.Mesh(new THREE.CircleGeometry(0.06, 10).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.6, depthWrite: false }));
-      mark.position.set(to.x, 0.036, to.z);
-      this.world.add(mark);
-    }
+    await arrive;
+    this.impact(to, hit, target, color);
   }
-  tracer(from, to, color, radius) {
-    const len = from.distanceTo(to);
-    const g = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 1, 6).rotateX(Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    const streak = Math.min(1.1, len * 0.3);
-    g.scale.set(1, 1, streak);
-    g.lookAt(to.clone().sub(from).add(g.position));
+  // Where a bolt lands: on a body a white flash and sparks in its colour; on the ground or cover a glowing scorch
+  // that cools to black, a spray of embers and a puff of smoke.
+  impact(to, hit, target, color) {
+    this.sparks(to, hit ? (target && target.side === 'pale' ? '#9ff6ff' : '#ff9a60') : color, hit ? 36 : 22, hit ? 0.6 : 0.55, hit ? 1.2 : 1.1, hit ? 0.2 : 0.14);
+    const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: hit ? '#ffffff' : color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    fl.position.copy(to);
+    fl.scale.setScalar(hit ? 0.5 : 0.45);
+    this.fxRoot.add(fl);
+    const fs = this.time;
+    this.fx.push(() => { const k = (this.time - fs) / 0.1; fl.material.opacity = 1 - k; if (k >= 1) { fl.removeFromParent(); fl.material.dispose(); return false; } return true; });
+    if (hit) {
+      if (target) this.hitFlinch(target);
+      if (target && target.side === 'pale') this.puff(to, '#7ff4ff', 0.45, 0.7, 0.4);
+      return;
+    }
+    const ground = to.clone();
+    ground.y = 0.1;
+    this.puff(ground, '#6f6a62', 0.55, 1.2, 0.5);
+    const mark = new THREE.Mesh(new THREE.CircleGeometry(0.22, 14).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex(), color: new THREE.Color(color).multiplyScalar(2), transparent: true, depthWrite: false }));
+    mark.position.set(to.x, 0.04, to.z);
+    mark.userData.noAO = true;
+    this.fxRoot.add(mark);
+    // the scorch glows, cools to black over three seconds, and stays a while
+    const ms = this.time;
+    this.scorches = (this.scorches || []).filter((m) => m.parent);
+    this.scorches.push(mark);
+    if (this.scorches.length > 50) { const old = this.scorches.shift(); old.removeFromParent(); old.material.dispose(); }
+    this.fx.push(() => {
+      const t = this.time - ms, k = Math.min(1, t / 3);
+      mark.material.color.set(color).multiplyScalar(2 * (1 - k)).lerp(new THREE.Color('#000000'), k);
+      mark.material.blending = k < 0.6 ? THREE.AdditiveBlending : THREE.NormalBlending;
+      mark.material.opacity = k < 0.6 ? 1 : 0.55 * Math.min(1, Math.max(0, (34 - t) / 4));
+      if (t > 34) { mark.removeFromParent(); mark.material.dispose(); return false; }
+      return true;
+    });
+  }
+  // An energy bolt: a white-hot core inside a coloured halo, flying at speed (units a second). Resolves on arrival.
+  bolt(from, to, color, size = 1, speed = 40) {
+    const dir = to.clone().sub(from);
+    const len = dir.length();
+    dir.normalize();
+    _boltGeo ||= { core: new THREE.CapsuleGeometry(0.016, 0.5, 3, 8).rotateX(Math.PI / 2), halo: new THREE.CapsuleGeometry(0.05, 0.62, 3, 10).rotateX(Math.PI / 2) };
+    const g = new THREE.Group();
+    const core = new THREE.Mesh(_boltGeo.core, new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff4e6').multiplyScalar(3), transparent: true, depthWrite: false }));
+    const halo = new THREE.Mesh(_boltGeo.halo, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.4), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const head2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.85 }));
+    head2.position.z = 0.3;
+    head2.scale.setScalar(0.55 * size);
+    g.add(core, halo, head2);
+    g.scale.set(size, size, Math.min(1, len / 1.2));
+    g.position.copy(from);
+    g.lookAt(to);
+    g.traverse((o) => { o.userData.noAO = true; });
     this.fxRoot.add(g);
-    const dur = Math.max(0.08, len / 90);
-    const start = this.time;
-    const dir = to.clone().sub(from).normalize();
-    const trail = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.22, radius * 0.22, len, 5).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
-    trail.position.copy(from).add(to).multiplyScalar(0.5);
-    trail.lookAt(to);
+    // a short glowing tail that follows the bolt and shrinks into the impact point
+    const trail = new THREE.Mesh(new THREE.CylinderGeometry(0.014 * size, 0.004 * size, 1, 6).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.6), transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
+    trail.userData.noAO = true;
+    trail.visible = false;
     this.fxRoot.add(trail);
-    const ts = this.time;
-    this.fx.push(() => {
-      const k = (this.time - ts) / 0.2;
-      trail.material.opacity = k < 0.15 ? k / 0.15 * 0.3 : 0.3 * (1 - (k - 0.15) / 0.85);
-      if (k >= 1) { trail.removeFromParent(); trail.geometry.dispose(); trail.material.dispose(); return false; }
-      return true;
+    const TAIL = 0.9 * size;
+    const dur = Math.max(0.06, len / speed), start = this.time;
+    return new Promise((resolve) => {
+      this.fx.push(() => {
+        const k = (this.time - start) / dur;
+        const head = len * Math.min(1, k), tail = Math.max(0, Math.min(TAIL, head) - (k > 1 ? (k - 1) * dur * speed : 0));
+        if (tail > 0.02) {
+          trail.visible = true;
+          trail.scale.z = tail;
+          trail.position.copy(from).addScaledVector(dir, head - tail / 2);
+          trail.lookAt(to);
+        } else trail.visible = false;
+        if (k <= 1) g.position.copy(from).addScaledVector(dir, head);
+        else if (g.parent) { g.removeFromParent(); core.material.dispose(); halo.material.dispose(); head2.material.dispose(); resolve(); }
+        if (k > 1 && tail <= 0.02) { trail.removeFromParent(); trail.geometry.dispose(); trail.material.dispose(); return false; }
+        return true;
+      });
     });
-    this.fx.push(() => {
-      const k = (this.time - start) / dur;
-      if (k >= 1.15) { g.removeFromParent(); g.geometry.dispose(); g.material.dispose(); return false; }
-      g.position.copy(from).addScaledVector(dir, Math.min(len - streak / 2, Math.max(streak / 2, len * k)));
-      g.material.opacity = k > 1 ? 1 - (k - 1) / 0.15 : 1;
-      return true;
-    });
+  }
+  tracer(from, to, color, radius) { return this.bolt(from, to, color, radius / 0.011); }
+  // A shot that misses on purpose, for the crossfire between turns: past the target's shoulder and into the ground
+  // or cover behind it, or off into the distance.
+  nearMiss(shooter, target) {
+    const r = this.rig(shooter), t = this.rig(target);
+    if (!r || !t || !r.root.visible || !t.root.visible) return;
+    const from = this.muzzlePos(shooter);
+    const aim = this.targetPos(target);
+    const dir = aim.clone().sub(from).normalize();
+    const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar((Math.random() < 0.5 ? -1 : 1) * (0.7 + Math.random() * 0.9));
+    aim.add(side);
+    aim.y = Math.min(aim.y + (Math.random() - 0.5) * 0.4, from.y - 0.25);
+    const ray = aim.clone().sub(from);
+    // carry on past the target until the bolt meets the ground
+    let to, lands = false;
+    if (ray.y < -0.02) { const k = (0.05 - from.y) / ray.y; to = from.clone().addScaledVector(ray, Math.min(k, 6)); lands = k <= 6; }
+    else to = from.clone().addScaledVector(ray, 2.2);
+    const color = shooter.side === 'pale' ? BOLT.pale : BOLT.ember;
+    this.muzzleFlash(from, color);
+    this.bolt(from, to, color, 1.1, 34).then(() => { if (lands) this.impact(to, false, null, color); });
   }
   muzzleFlash(pos, color) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
     s.position.copy(pos);
     s.material.rotation = Math.random() * 6;
-    s.scale.setScalar(0.5 + Math.random() * 0.25);
+    s.scale.setScalar(0.45 + Math.random() * 0.2);
     this.fxRoot.add(s);
+    // a ring of light that spreads from the emitter
+    const ring = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+    ring.position.copy(pos);
+    this.fxRoot.add(ring);
     this.flash.position.copy(pos);
     this.flash.intensity = 6;
     this.flash.distance = 3.5;
     const start = this.time;
     this.fx.push(() => {
-      const k = (this.time - start) / 0.06;
-      s.material.opacity = 1 - k;
-      if (k >= 1) { s.removeFromParent(); s.material.dispose(); return false; }
+      const k = (this.time - start) / 0.09;
+      s.material.opacity = Math.max(0, 1 - k * 1.4);
+      ring.scale.setScalar(0.2 + k * 0.7);
+      ring.material.opacity = Math.max(0, 0.8 * (1 - k));
+      if (k >= 1) { s.removeFromParent(); s.material.dispose(); ring.removeFromParent(); ring.material.dispose(); return false; }
       return true;
     });
   }
@@ -1444,6 +1534,7 @@ export class View {
       this.cine.p.copy(this.stationNow.eye).add(v3.set(Math.sin(t * 0.13) * d, Math.sin(t * 0.09) * d * 0.3, Math.cos(t * 0.11) * d * 0.5));
     }
     if (this.carrier) this.carrier.tick(dt, this.time);
+    if (this.skyDome) this.skyDome.position.copy(this.camera.position);
     if (this.cine) {
       const k2 = 1 - Math.exp(-dt * (this.cine.speed || 9));
       this.cineCur ||= { p: this.camera.position.clone(), t: new THREE.Vector3(c.tx, 0.5, c.tz) };
@@ -1612,6 +1703,56 @@ export function fireBook() {
   return _fireBook;
 }
 let _smokeLit = null;
+// The frontier sky: a ringed gas giant and a small moon far beyond the map, lit by the same sun. Low and cinematic
+// cameras see them over the rooftops.
+let _gasTex = null, _ringTex = null, _moonTex = null;
+function frontierSky(cx, cz, size) {
+  const canvas = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const rng = makeRng(77);
+  _gasTex ||= canvas(1024, 512, (g, w, h) => {
+    const cols = ['#c9a77a', '#e3cfa6', '#a8744a', '#d9b98a', '#8f5f3e', '#efe0c0', '#b98a5a'];
+    for (let y = 0; y < h; y += 2) {
+      const band = cols[Math.floor((Math.sin(y * 0.045) * 0.5 + 0.5 + Math.sin(y * 0.013) * 0.4) * cols.length + cols.length) % cols.length];
+      g.fillStyle = band; g.fillRect(0, y, w, 2);
+    }
+    for (let i = 0; i < 900; i++) {
+      const y = rng() * h, x = rng() * w, l = 40 + rng() * 220;
+      g.fillStyle = `rgba(${rng() < 0.5 ? '255,240,215' : '90,55,35'},${0.05 + rng() * 0.08})`;
+      g.fillRect(x, y, l, 1 + rng() * 3);
+    }
+    const sx = w * 0.62, sy = h * 0.62;
+    const gr = g.createRadialGradient(sx, sy, 0, sx, sy, 46);
+    gr.addColorStop(0, 'rgba(170,70,40,.9)'); gr.addColorStop(0.6, 'rgba(200,110,70,.5)'); gr.addColorStop(1, 'rgba(200,110,70,0)');
+    g.save(); g.scale(1.8, 1); g.fillStyle = gr; g.fillRect((sx - 60) / 1.8, sy - 60, 120, 120); g.restore();
+  });
+  _ringTex ||= canvas(512, 512, (g, w) => {
+    for (let r = 0; r < w / 2; r++) {
+      const k = r / (w / 2);
+      if (k < 0.66) continue;
+      const a = (0.25 + 0.5 * Math.abs(Math.sin(r * 0.31)) * Math.abs(Math.sin(r * 0.07))) * Math.min(1, (k - 0.66) * 12) * Math.min(1, (1 - k) * 14);
+      g.strokeStyle = `rgba(226,206,170,${a})`; g.lineWidth = 1.2;
+      g.beginPath(); g.arc(w / 2, w / 2, r, 0, 7); g.stroke();
+    }
+  });
+  _moonTex ||= canvas(512, 256, (g, w, h) => {
+    g.fillStyle = '#8d8a86'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i++) { const x = rng() * w, y = rng() * h, r = 2 + rng() * 14; g.fillStyle = `rgba(${rng() < 0.5 ? '60,58,56' : '170,166,160'},${0.15 + rng() * 0.25})`; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+  });
+  const grp = new THREE.Group();
+  const far = 150 + size;
+  const giant = new THREE.Mesh(new THREE.SphereGeometry(34, 64, 32), new THREE.MeshStandardMaterial({ map: _gasTex, emissiveMap: _gasTex, emissive: '#ffffff', emissiveIntensity: 0.08, roughness: 1, metalness: 0, fog: false }));
+  giant.position.set(cx - far * 0.3, 74, cz - far * 0.85);
+  giant.rotation.set(0.2, 0, 0.32);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(42, 66, 128, 1), new THREE.MeshStandardMaterial({ map: _ringTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 1, fog: false }));
+  ring.rotation.set(-Math.PI / 2 + 0.38, 0, 0.32);
+  giant.add(ring);
+  ring.rotation.set(-Math.PI / 2 + 0.18, 0, 0);
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(6, 32, 16), new THREE.MeshStandardMaterial({ map: _moonTex, roughness: 1, fog: false }));
+  moon.position.set(cx + far * 0.35, 58, cz - far * 0.9);
+  grp.add(giant, moon);
+  grp.traverse((o) => { o.userData.noAO = true; o.castShadow = false; o.receiveShadow = false; });
+  return grp;
+}
 function smokeLitTex() {
   // overlapping soft blobs, each lit from above: bright crowns, darker undersides
   return (_smokeLit ||= blobTex((g) => {

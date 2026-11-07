@@ -33,8 +33,8 @@ const PLATES = [
   { id: 'chest', V: [-1, -0.55, -0.18, 0.18, 0.55, 1], a: 'Spine1', b: 'Neck', on: ['Spine1', 'Spine2'], t: [0.1, 0.93], face: 'fwd', half: 74, off: 0.012, th: 0.016, at: 'Spine2' },
   { id: 'back', V: [-1, -0.5, 0, 0.5, 1], a: 'Spine1', b: 'Neck', on: ['Spine1', 'Spine2'], t: [0.02, 0.9], face: 'back', half: 70, off: 0.014, th: 0.016, at: 'Spine2' },
   { id: 'belly', V: [-1, -0.35, 0.35, 1], a: 'Hips', b: 'Spine1', on: ['Spine', 'Hips', 'Spine1'], t: [0.42, 1.0], face: 'fwd', half: 58, off: 0.01, th: 0.012, at: 'Spine' },
-  { id: 'shoulderL', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'LeftArm', b: 'LeftForeArm', on: ['LeftArm', 'LeftShoulder'], t: [-0.2, 0.42], face: 'out', half: 98, off: 0.014, th: 0.014, at: 'LeftArm', cls: true },
-  { id: 'shoulderR', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'RightArm', b: 'RightForeArm', on: ['RightArm', 'RightShoulder'], t: [-0.2, 0.42], face: 'out', half: 98, off: 0.014, th: 0.014, at: 'RightArm' },
+  { id: 'shoulderL', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'LeftArm', b: 'LeftForeArm', on: ['LeftArm', 'LeftShoulder'], t: [-0.2, 0.42], face: 'out', half: 86, off: 0.012, th: 0.013, at: 'LeftArm', cls: true },
+  { id: 'shoulderR', V: [-1, -0.6, -0.2, 0.2, 0.6, 1], a: 'RightArm', b: 'RightForeArm', on: ['RightArm', 'RightShoulder'], t: [-0.2, 0.42], face: 'out', half: 86, off: 0.012, th: 0.013, at: 'RightArm' },
   { id: 'forearmL', V: [-1, -0.33, 0.33, 1], a: 'LeftForeArm', b: 'LeftHand', on: ['LeftForeArm'], t: [0.2, 0.86], face: 'out', half: 84, off: 0.008, th: 0.011, at: 'LeftForeArm' },
   { id: 'forearmR', V: [-1, -0.33, 0.33, 1], a: 'RightForeArm', b: 'RightHand', on: ['RightForeArm'], t: [0.2, 0.86], face: 'out', half: 84, off: 0.008, th: 0.011, at: 'RightForeArm' },
   { id: 'thighL', V: [-1, -0.3, 0, 0.3, 1], round: 0.1, a: 'LeftUpLeg', b: 'LeftLeg', on: ['LeftUpLeg'], t: [0.16, 0.64], face: 'fwdOut', half: 64, off: 0.008, th: 0.01, at: 'LeftUpLeg' },
@@ -356,11 +356,11 @@ function fitHelmet(verts, fwd) {
   // comm pucks over the ears break up the helmet's round outline
   const ears = mergeGeometries([-1, 1].map((sg2) => {
     const a = (sg2 * Math.PI) / 2, ph = phiAt(a, top - 0.078 * H), q = point(ph, a, TH + 0.005);
-    return new THREE.CylinderGeometry(0.026, 0.031, 0.016, 18).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
+    return new THREE.CylinderGeometry(0.018, 0.022, 0.012, 18).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
   }));
   const earCaps = mergeGeometries([-1, 1].map((sg2) => {
     const a = (sg2 * Math.PI) / 2, ph = phiAt(a, top - 0.078 * H), q = point(ph, a, TH + 0.014);
-    return new THREE.CylinderGeometry(0.014, 0.014, 0.006, 14).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
+    return new THREE.CylinderGeometry(0.01, 0.01, 0.006, 14).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirOf(ph, a))).translate(q.x, q.y, q.z);
   }));
   return { shell: shellGeo, visor: vg, strip: sg, crest, ears, earCaps, spotterAt: side, centre: C, right, fwd, up };
 }
@@ -399,7 +399,7 @@ export function fitBody(key, model, P = 'mixamorig') {
 
 // ------------------------------------------------------------ materials and dressing
 function armourMat(rim) {
-  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.42, metalness: 0.08, envMapIntensity: 1.0 });
+  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.56, metalness: 0.08, envMapIntensity: 1.0 });
   m.userData.uniforms = { uArmour: { value: new THREE.Color() }, uTrim: { value: new THREE.Color() }, uPattern: { value: 0 } };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, m.userData.uniforms, { uRim: rim });

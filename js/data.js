@@ -156,9 +156,9 @@ export const OP_WORDS_A = ['Quiet', 'Iron', 'Red', 'Long', 'Cold', 'Broken', 'Si
 export const OP_WORDS_B = ['Harbour', 'Lantern', 'Anvil', 'River', 'Gate', 'Hammer', 'Bridge', 'Orchard', 'Tower', 'Field', 'Road', 'Hill', 'Market', 'Spark', 'Pine', 'Badger', 'Kettle', 'Compass', 'Ridge', 'Mill'];
 
 export const BIOMES = {
-  town: { name: 'Town' },
-  farm: { name: 'Farm' },
-  yard: { name: 'Shipping yard' },
+  town: { name: 'Colony' },
+  farm: { name: 'Farmland' },
+  yard: { name: 'Cargo port' },
   spire: { name: 'The Spire' },
 };
 

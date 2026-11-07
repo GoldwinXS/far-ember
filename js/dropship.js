@@ -5,7 +5,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { glowTex } from './models.js';
 
-const EMBER = '#ff7a2e', NAVY = '#1b2a44', HULL_C = '#cfd0cb';
+const EMBER = '#ff7a2e', NAVY = '#1b2a44', HULL_C = '#c3c4bf';
 const EMBLEM = ['M60 5 L107 29 L100 87 L60 115 L20 87 L13 29 Z', 'M60 24 L67 53 L94 61 L67 69 L60 98 L53 69 L26 61 L53 53 Z'];
 
 // Hull cross-sections from nose (-z) to tail: z, width, height, centre height, squareness.
@@ -287,7 +287,9 @@ function hullMaterials() {
     bay: new THREE.MeshStandardMaterial({ color: '#5a606a', roughness: 0.8, metalness: 0.25, side: THREE.BackSide }),
     tread: new THREE.MeshStandardMaterial({ map: pmap, normalMap: pnor, color: '#8d939c', roughness: 0.62, metalness: 0.45 }),
     duct: new THREE.MeshStandardMaterial({ color: '#24262a', roughness: 0.6, metalness: 0.5, side: THREE.BackSide }),
-    heat: new THREE.MeshStandardMaterial({ color: '#6d5a4a', roughness: 0.35, metalness: 0.85 }),
+    heat: new THREE.MeshStandardMaterial({ color: '#545a66', roughness: 0.35, metalness: 0.85 }),
+    fan: new THREE.MeshStandardMaterial({ color: '#3a3d42', roughness: 0.4, metalness: 0.9 }),
+    podPanel: Object.assign(panel.clone(), { side: THREE.DoubleSide }),
     warmGlow: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffd6a8').multiplyScalar(1.6) }),
     seat: new THREE.MeshStandardMaterial({ color: '#2c3138', roughness: 0.8 }),
     rubber: new THREE.MeshStandardMaterial({ color: '#16181b', roughness: 0.7 }),
@@ -345,7 +347,7 @@ export function buildDropship() {
   }
   for (const x of [-0.32, 0.32]) for (let k = 0; k < 4; k++) add(new THREE.BoxGeometry(0.12, 0.03, 0.12), M.warmGlow, x, 2.96, 0.5 + k * 0.85, body, false);
   add(new THREE.BoxGeometry(0.08, 0.08, 0.04), M.redGlow, 0.72, 2.62, 3.88, body, false);
-  const bayLight = new THREE.PointLight('#ff7a5a', 3, 5, 1.8);
+  const bayLight = new THREE.PointLight('#ffd6a8', 3, 5, 1.8);
   bayLight.position.set(0, 2.5, 2.4);
   body.add(bayLight);
   // ramp, hinged at the bottom of the tail
@@ -387,27 +389,22 @@ export function buildDropship() {
     const wing = add(g, M.panel, 0, 1.78, 0);
     wing.rotation.z = s * -0.07;
     wings.push(wing);
-    // leading edge stripe
-    const le = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 3.4), M.ember);
-    le.position.set(s * 2.7, 0.3, -0.25);
-    le.rotation.y = s * 0.49;
-    wing.add(le);
     // engine pod at the tip on a pivot, so it can swing from straight down (hover) to straight back (cruise)
     const pivot = new THREE.Group();
     pivot.position.set(s * 4.45, 1.98, 1.25);
     body.add(pivot);
     const prof = [[0.33, 1.2], [0.37, 1.28], [0.42, 1.27], [0.5, 1.16], [0.56, 0.9], [0.56, -0.55], [0.5, -0.95], [0.43, -1.22], [0.36, -1.24]].map(([r, y]) => new THREE.Vector2(r, y));
-    const pod = add(new THREE.LatheGeometry(prof, 28).rotateX(-Math.PI / 2), M.panel, 0, 0, 0, pivot);
+    const pod = add(new THREE.LatheGeometry(prof, 28).rotateX(-Math.PI / 2), M.podPanel, 0, 0, 0, pivot);
     add(new THREE.TorusGeometry(0.5, 0.035, 8, 28), M.ember, 0, 0, -1.0, pivot, false);
     add(new THREE.CylinderGeometry(0.335, 0.335, 0.3, 24, 1, true).rotateX(Math.PI / 2), M.duct, 0, 0, -1.08, pivot, false);
     add(new THREE.CircleGeometry(0.335, 24), M.dark, 0, 0, -0.95, pivot, false);
     for (let k = 0; k < 18; k++) {
-      const blade = add(new THREE.BoxGeometry(0.05, 0.3, 0.012), M.metal, 0, 0, -1.0, pivot, false);
+      const blade = add(new THREE.BoxGeometry(0.05, 0.3, 0.012), M.fan, 0, 0, -1.0, pivot, false);
       blade.rotation.set(0, 0.5, (k / 18) * Math.PI * 2, 'ZYX');
       blade.position.x = Math.sin((k / 18) * Math.PI * 2) * -0.17;
       blade.position.y = Math.cos((k / 18) * Math.PI * 2) * 0.17;
     }
-    add(new THREE.ConeGeometry(0.08, 0.16, 16).rotateX(-Math.PI / 2), M.metal, 0, 0, -1.07, pivot, false);
+    add(new THREE.ConeGeometry(0.08, 0.16, 16).rotateX(-Math.PI / 2), M.fan, 0, 0, -1.07, pivot, false);
     for (const z of [-0.45, 0.15, 0.7]) add(new THREE.TorusGeometry(0.562, 0.007, 4, 40), M.dark, 0, 0, z, pivot, false);
     add(new THREE.CylinderGeometry(0.555, 0.5, 0.36, 32, 1, true).rotateX(Math.PI / 2), M.heat, 0, 0, 0.82, pivot, false);
     add(new THREE.BoxGeometry(0.02, 0.18, 0.32), M.dark, s * 0.56, 0.12, -0.2, pivot, false);

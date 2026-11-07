@@ -115,9 +115,9 @@ export const BIOMES = {
   town: {
     layers: ['asphalt_02', 'concrete_pavement', 'leafy_grass', 'stony_dirt_path'],
     scale: [3.0, 1.6, 2.6, 3.0],
-    tex: ['brick_wall_02', 'plastered_wall_04', 'rough_plaster_brick', 'painted_plaster_wall', 'blue_plaster_weathered', 'clay_roof_tiles_02', 'grey_roof_tiles', 'wood_floor_worn', 'weathered_planks', 'concrete_floor_02'],
+    tex: ['concrete_panels', 'blue_metal_plate', 'metal_plate_02', 'painted_metal_shutter', 'brick_wall_02', 'wood_floor_worn', 'weathered_planks', 'concrete_floor_02'],
     props: ['wooden_crate_01', 'wooden_crate_02', 'wooden_military_crate', 'Barrel_01', 'Barrel_02', 'covered_car', 'shrub_02', 'shrub_04', 'street_lamp_01', 'fire_hydrant',
-      'metal_trash_can', 'utility_box_01', 'power_box_01', 'exterior_aircon_unit', 'trashbag', 'cardboard_box_01', 'painted_wooden_bench', 'planter_box_01', 'water_manhole_cover',
+      'metal_trash_can', 'utility_box_01', 'power_box_01', 'exterior_aircon_unit', 'trashbag', 'cardboard_box_01', 'ammo_box', 'propane_tank', 'water_manhole_cover',
       'grass_medium_01', 'grass_medium_02', 'old_tyre', 'plastic_crate_01', 'cement_bag', 'utility_box_02', 'security_light'],
     trees: ['oak', 'birch'],
   },

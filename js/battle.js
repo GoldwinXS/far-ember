@@ -845,8 +845,35 @@ export class Battle {
     this.run(() => this.enemyTurn());
   }
 
+  // Between turns the two sides trade shots that miss, for the look of a firefight: no damage, no effect on play.
+  // It runs while the enemy turn plays and for a moment as the player's turn begins.
+  async crossfire(seconds) {
+    if (this.view.instant || this.crossfiring) return;
+    this.crossfiring = true;
+    const end = this.view.time + seconds;
+    const pick = (list) => list[Math.floor(Math.random() * list.length)];
+    let tail = null;
+    while (!this.over && this.view.time < end) {
+      // keep going for a moment after the player's turn begins, and stop once they act
+      if (this.phase !== 'enemy') { tail ??= this.view.time + 2.5; if (this.view.time > tail || this.busy) break; }
+      const foes = this.enemies().filter((e) => e.seen && e.alive && e.onMap);
+      const squad = this.soldiers().filter((s) => s.alive && s.onMap);
+      if (!foes.length || !squad.length) break;
+      // one side fires a short burst; now and then the other answers
+      const ember = Math.random() < 0.55;
+      const a = ember ? pick(squad) : pick(foes), b = ember ? pick(foes) : pick(squad);
+      if (a !== this.acting && dist(a, b) < 26) {
+        const n = 1 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < n; i++) setTimeout(() => this.view.nearMiss(a, b), i * 110);
+        this.sfx.distantShot?.(!ember);
+      }
+      await this.view.wait(0.5 + Math.random() * 0.8);
+    }
+    this.crossfiring = false;
+  }
   async enemyTurn() {
     this.phase = 'enemy';
+    this.crossfire(60);
     this.select(null);
     this.ui.banner('Enemy turn', '');
     this.ui.refresh();
@@ -869,7 +896,9 @@ export class Battle {
     for (const e of order) {
       if (!e.alive || !e.onMap) continue;
       if (!this.soldiers().length) break;
+      this.acting = e;
       try { await this.act(e); } catch (err) { console.error(err); }
+      this.acting = null;
       if (this.checkEnd()) return;
     }
     this.startPlayerTurn();

@@ -177,9 +177,9 @@ export async function dropIn(view, sfx, squad, show) {
   ship.setRamp(0.55);
   sfx.door?.(true);
   // a ring of dust kicked up under the hover
-  for (let i = 0; i < 44; i++) {
+  for (let i = 0; i < 34; i++) {
     const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 2;
-    view.puff?.(new THREE.Vector3(hover.x + Math.cos(a) * r, 0.12, hover.z + Math.sin(a) * r), '#9a8f80', 1 + Math.random() * 2, 1.5, 0.3);
+    view.puff?.(new THREE.Vector3(hover.x + Math.cos(a) * r, 0.12, hover.z + Math.sin(a) * r), '#9a8f80', 0.6 + Math.random() * 0.9, 1.5, 0.3);
   }
   // they drop from the ramp edge to their tiles, one at a time
   for (const [i, u] of squad.entries()) {

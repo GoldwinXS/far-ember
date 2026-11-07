@@ -219,11 +219,14 @@ export class UI {
     if (!u || u.side !== 'ember' || !this.b || this.app.view.instant) return;
     const now = performance.now();
     this.barkAt ||= new Map();
-    if ((this.barkAt.get(u.id) || 0) > now) return;
+    if ((this.barkAt.get(u.id) || 0) > now || (this.barkAny || 0) > now) return;
+    if (kind === 'low' && (this.lastLow || 0) > now - 5000) return;
     const line = barkLine(kind, vars);
     const p = line && this.app.view.unitScreen(u, 0.95);
     if (!p || p.behind) return;
     this.barkAt.set(u.id, now + 3500);
+    this.barkAny = now + 1200;
+    if (kind === 'low') this.lastLow = now;
     const el = document.createElement('div');
     el.className = 'bark';
     el.innerHTML = `<b>${esc(u.callsign || u.name.split(' ')[0])}</b>${esc(line)}`;

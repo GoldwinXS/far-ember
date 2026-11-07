@@ -6,6 +6,9 @@ import {
 import { defaultKit } from './armour.js';
 import { makeBio, newRecord, recordMission } from './service.js';
 
+// the frontier worlds the Pale have taken, named on each mission
+const WORLDS = ['Vell', 'Tessaly Reach', 'Cinder Bay', 'Low Harrow', 'Greywater', 'Kestrel Moon', 'Halcyon', 'New Arden', 'Ostro', 'Fallow', 'Bramble Point', 'Saltmarsh'];
+
 export function newCampaign({ difficulty, coop, names }) {
   const seed = (Math.random() * 1e9) | 0;
   const camp = {
@@ -88,13 +91,14 @@ export function makeOffers(camp) {
       reward: 50 + diff * 30 + rng.int(0, 4) * 5 + (type === 'recover' ? 25 : 0) + (strike ? 30 : 0),
       seed: rng.int(1, 1e8),
       time: rng.pick(['day', 'day', 'dusk', 'night']),
+      world: rng.pick(WORLDS),
       act: act(camp),
     };
   });
 }
 
 export function missionBlurb(m) {
-  const where = BIOMES[m.biome].name;
+  const where = m.world ? `${m.world} ${BIOMES[m.biome].name.toLowerCase()}` : BIOMES[m.biome].name;
   const t = MISSION_TYPES[m.type];
   return { where, title: t.name, brief: t.brief };
 }

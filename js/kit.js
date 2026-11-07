@@ -402,7 +402,8 @@ const WMAT = {
   rubber: new THREE.MeshStandardMaterial({ color: '#141516', roughness: 0.9, metalness: 0 }),
   cloth: new THREE.MeshStandardMaterial({ color: '#4b4f3c', roughness: 0.95, metalness: 0 }),
   brass: new THREE.MeshStandardMaterial({ color: '#c9a45a', roughness: 0.3, metalness: 1 }),
-  shell: new THREE.MeshStandardMaterial({ color: '#8f2a22', roughness: 0.5, metalness: 0.1 }),
+  shell: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff7a2a').multiplyScalar(1.8) }),
+  cell: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff7a2a').multiplyScalar(1.8) }),
   glass: new THREE.MeshStandardMaterial({ color: '#0f2030', roughness: 0.05, metalness: 0.3, envMapIntensity: 2.2 }),
   pale: new THREE.MeshStandardMaterial({ color: '#b2aca2', roughness: 0.65, metalness: 0 }),
   glow: new THREE.MeshStandardMaterial({ color: '#8ef5ff', emissive: '#59e6f2', emissiveIntensity: 1.6 }),
@@ -443,6 +444,36 @@ export function wornGuns(set) {
     m.normalScale = new THREE.Vector2(0.35, 0.35);
     m.roughnessMap = set.arm;
     m.needsUpdate = true;
+  }
+}
+// What makes the squad's guns blasters: focusing coils along the barrel, a flared emitter at the tip and
+// glowing energy cells in Ember orange. Positions are in the gun's own space (barrel along +x, about a metre long).
+function blasterParts(add, kind) {
+  const ring = (x, r, y, m = WMAT.steel) => add(new THREE.TorusGeometry(r, r * 0.22, 6, 18).rotateY(Math.PI / 2).translate(x, y, 0), m);
+  const cellStrip = (x, y, w, h) => { for (const z of [-1, 1]) add(new THREE.BoxGeometry(w, h, 0.004).translate(x, y, z * 0.027), WMAT.cell); };
+  if (kind === 'rifle') {
+    for (const [k, x] of [0.62, 0.69, 0.76].entries()) ring(x, 0.02, 0.022, k === 1 ? WMAT.cell : WMAT.steel);
+    add(new THREE.CylinderGeometry(0.016, 0.022, 0.06, 12).rotateZ(Math.PI / 2).translate(0.9, 0.022, 0), WMAT.steel);
+    ring(0.93, 0.013, 0.022, WMAT.cell);
+    cellStrip(0.13, 0.02, 0.17, 0.008);
+    for (const z of [-1, 1]) add(new THREE.BoxGeometry(0.035, 0.06, 0.004).translate(0.13, -0.09, z * 0.016), WMAT.cell);
+  } else if (kind === 'lmg') {
+    for (let k = 0; k < 5; k++) ring(0.62 + k * 0.07, 0.026, 0.022, k % 2 ? WMAT.cell : WMAT.steel);
+    for (let k = 0; k < 6; k++) add(new THREE.BoxGeometry(0.03, 0.03, 0.004).translate(0.62 + k * 0.05, 0.05, 0), WMAT.steel);
+    add(new THREE.CylinderGeometry(0.065, 0.065, 0.1, 18).rotateX(Math.PI / 2).translate(0.12, -0.08, 0.035), WMAT.steel);
+    for (const z of [0.0, 0.07]) add(new THREE.TorusGeometry(0.066, 0.006, 6, 24).translate(0.12, -0.08, z), WMAT.cell);
+    ring(1.0, 0.016, 0.022, WMAT.cell);
+    cellStrip(0.14, 0.03, 0.2, 0.01);
+  } else if (kind === 'shotgun') {
+    add(new THREE.CylinderGeometry(0.05, 0.022, 0.08, 16, 1, true).rotateZ(Math.PI / 2).translate(0.93, 0.015, 0), WMAT.steel);
+    add(new THREE.CircleGeometry(0.03, 14).rotateY(Math.PI / 2).translate(0.9, 0.015, 0), WMAT.cell);
+    for (const x of [0.62, 0.72]) ring(x, 0.032, 0.015);
+    cellStrip(0.1, 0.035, 0.18, 0.008);
+  } else if (kind === 'sniper') {
+    for (let k = 0; k < 6; k++) ring(0.64 + k * 0.075, 0.024, 0.018, k % 2 ? WMAT.cell : WMAT.steel);
+    add(new THREE.CylinderGeometry(0.012, 0.02, 0.06, 12).rotateZ(Math.PI / 2).translate(1.15, 0.018, 0), WMAT.steel);
+    ring(1.17, 0.011, 0.018, WMAT.cell);
+    cellStrip(0.14, 0.02, 0.2, 0.008);
   }
 }
 export function buildWeapon(kind) {
@@ -508,6 +539,9 @@ export function buildWeapon(kind) {
     add(tube(0.026, 0.388, 0.392, 0.11, 16), WMAT.glass);
     for (const x of [0.06, 0.24]) add(new THREE.BoxGeometry(0.02, 0.055, 0.02).translate(x, 0.075, 0), WMAT.steel);
     for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.005, 0.005, 0.2, 6).rotateZ(Math.PI / 2).translate(0.62, -0.01, s * 0.014), WMAT.steel);
+  }
+  if (kind !== 'lance') {
+    blasterParts(add, kind);
   } else {
     // crystal lance: dark glass shards with glowing veins, grown around a bone-grey grip
     const glass = new THREE.MeshPhysicalMaterial({ color: '#1d2430', roughness: 0.12, clearcoat: 1, emissive: '#5ae8f4', emissiveMap: veins(), emissiveIntensity: 1.1, flatShading: true });

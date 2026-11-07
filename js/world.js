@@ -95,6 +95,9 @@ export function variants(name) {
     c.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
     const size = box.getSize(new THREE.Vector3());
     prepModel(holder);
+    // leaves and grass blades take the world's plant colour
+    // (every tree material but the bark: some leaves and needles are solid, not cut-out cards)
+    if (name.startsWith('tree') || name.startsWith('grass')) holder.traverse((o) => { if (o.isMesh && o.material && !/bark|trunk|stem|wood/i.test(o.material.name + (o.material.map?.name || ''))) alienFoliage(o.material); });
     return { obj: holder, size };
   }).filter((v) => v.size.x > 0.01);
   variantCache.set(name, out);
@@ -202,6 +205,8 @@ function groundMaterial(map, arrays, scales, overlayTex, glowTex) {
     uScale: { value: new THREE.Vector4(...scales) }, uMap: { value: new THREE.Vector2(W, H) }, uWet: { value: 0 }, uGlow: { value: glowTex ? 1 : 0 },
     uWetMask: { value: new THREE.Vector4(...(WETMASK[map.biome] || [0, 0, 0, 0])) },
     uTint: { value: new THREE.Vector3(...(map.biome === 'spire' ? [0.72, 0.76, 0.9] : [1, 1, 1])) },
+    uVeg: { value: new THREE.Vector4(...new THREE.Color((VEG[map.biome] || {}).color || '#ffffff').toArray(), (VEG[map.biome] || {}).amount || 0) },
+    uVegMask: { value: new THREE.Vector4(...((VEG[map.biome] || {}).mask || [0, 0, 0, 0])) },
   };
   m.userData.uniforms = uniforms;
   m.onBeforeCompile = (sh) => {
@@ -214,7 +219,7 @@ function groundMaterial(map, arrays, scales, overlayTex, glowTex) {
 varying vec3 vGW;
 uniform highp sampler2DArray tAlb; uniform highp sampler2DArray tNor; uniform highp sampler2DArray tArm;
 uniform sampler2D tSplat; uniform sampler2D tNoise; uniform sampler2D tOverlay; uniform sampler2D tGlow;
-uniform vec4 uScale; uniform vec2 uMap; uniform float uWet; uniform float uGlow; uniform vec4 uWetMask; uniform vec3 uTint;
+uniform vec4 uScale; uniform vec2 uMap; uniform float uWet; uniform float uGlow; uniform vec4 uWetMask; uniform vec3 uTint; uniform vec4 uVeg; uniform vec4 uVegMask;
 vec3 gArm; vec3 gNor; vec4 gAlb; float gWet; vec2 gSuv;`)
       .replace('#include <map_fragment>', `
 vec2 gp = vGW.xz;
@@ -224,6 +229,7 @@ vec4 sw = texture(tSplat, gSuv + (vec2(n1, n2) - 0.5) * 1.1 / uMap);
 float sws[4]; sws[0] = sw.r; sws[1] = sw.g; sws[2] = sw.b; sws[3] = sw.a;
 float wm[4]; wm[0] = uWetMask.x; wm[1] = uWetMask.y; wm[2] = uWetMask.z; wm[3] = uWetMask.w; float accW = 0.0;
 float scl[4]; scl[0] = uScale.x; scl[1] = uScale.y; scl[2] = uScale.z; scl[3] = uScale.w;
+float vm[4]; vm[0] = uVegMask.x; vm[1] = uVegMask.y; vm[2] = uVegMask.z; vm[3] = uVegMask.w;
 vec4 accA = vec4(0.0); vec3 accR = vec3(0.0); vec3 accN = vec3(0.0); float wsum = 0.0;
 vec2 gpx = dFdx(vec2(gp.x, -gp.y)), gpy = dFdy(vec2(gp.x, -gp.y));
 for (int i = 0; i < 4; i++) {
@@ -232,7 +238,9 @@ for (int i = 0; i < 4; i++) {
   vec2 ddx = gpx / scl[i], ddy = gpy / scl[i];
   vec3 armS = textureGrad(tArm, uvw, ddx, ddy).rgb;
   float w = pow(sws[i] * (armS.r + 0.35), 5.0);
-  accA += textureGrad(tAlb, uvw, ddx, ddy) * w;
+  vec4 aS = textureGrad(tAlb, uvw, ddx, ddy);
+  if (vm[i] > 0.5) aS.rgb = mix(aS.rgb, vec3(dot(aS.rgb, vec3(0.3, 0.59, 0.11))) * uVeg.rgb * 2.4, uVeg.a);
+  accA += aS * w;
   accR += armS * w;
   accN += (textureGrad(tNor, uvw, ddx, ddy).rgb * 2.0 - 1.0) * w;
   accW += wm[i] * w;
@@ -346,9 +354,10 @@ function glowCanvas(map) {
 
 // ------------------------------------------------------------ buildings
 const STYLE = {
-  brick: { wall: 'brick_wall_02', roof: 'clay_roof_tiles_02', floor: 'wood_floor_worn', trim: '#e9e4d8', door: '#3d5a45', pitch: 1.1 },
-  plaster: { wall: 'plastered_wall_04', roof: 'clay_roof_tiles_02', floor: 'wood_floor_worn', trim: '#f2efe6', door: '#6b2f25', pitch: 1.1 },
-  blue: { wall: 'rough_plaster_brick', wallColor: '#c9d6de', roof: 'grey_roof_tiles', floor: 'wood_floor_worn', trim: '#efeee8', door: '#2e3b55', pitch: 1.0 },
+  // colony prefabs: cast panels, ribbed metal and navy plate, low metal roofs, dark frames and orange doors
+  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'metal_plate_02', roofColor: '#7f8893', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'metal_plate_02', roofColor: '#7f8893', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'metal_plate_02', roofColor: '#8c949e', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
   barn: { wall: 'weathered_planks', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#b04a35' },
   shed: { wall: 'concrete_block_wall', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#8a8a84', door: '#5a6066', pitch: 0.5 },
   metal: { wall: 'rusty_corrugated_iron', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#9a9c98', door: '#6b7d8a', pitch: 0.45 },
@@ -532,7 +541,7 @@ function buildBuilding(parent, map, b, rng, isNight) {
   // roof (fades when someone is inside); tall houses get an upper floor that fades with it
   const upper = b.tall ? 1.85 : 0;
   const rf = roofFor(x0 - t, x1 + t, y0 - t, y1 + t, WALL_H + 0.07 + upper, st.pitch * 0.6, 0.34);
-  const roofMat = pbr(st.roof, { side: THREE.DoubleSide, color: b.style === 'barn' ? '#9a8f84' : '#ffffff' }).clone();
+  const roofMat = pbr(st.roof, { side: THREE.DoubleSide, color: st.roofColor || (b.style === 'barn' ? '#9a8f84' : '#ffffff') }).clone();
   roofMat.transparent = true;
   const gableMat = wallM.clone();
   gableMat.transparent = true;
@@ -578,15 +587,21 @@ function buildBuilding(parent, map, b, rng, isNight) {
   const gutterMat = new THREE.MeshStandardMaterial({ color: '#7d8084', metalness: 0.6, roughness: 0.45, transparent: true });
   for (const m of [new THREE.Mesh(rf.roof, roofMat), new THREE.Mesh(rf.gable, gableMat), new THREE.Mesh(rf.trim, trimMat), new THREE.Mesh(rf.gutter, gutterMat)]) { m.castShadow = true; m.receiveShadow = true; roof.add(m); }
   if (b.style === 'brick' || b.style === 'plaster' || b.style === 'blue') {
-    const chim = new THREE.Group();
+    const mast = new THREE.Group();
     const cx = x0 + (x1 - x0) * (rng() < 0.5 ? 0.25 : 0.75), cz = y0 + (y1 - y0) * (rng() < 0.5 ? 0.3 : 0.7);
-    const brick = pbr('brick_wall_02').clone();
-    brick.transparent = true;
-    const stack = new THREE.Mesh(wbox(cx - 0.22, cx + 0.22, WALL_H, rf.hRidge + 0.55, cz - 0.22, cz + 0.22, 1.2), brick);
-    const cap = new THREE.Mesh(wbox(cx - 0.27, cx + 0.27, rf.hRidge + 0.55, rf.hRidge + 0.62, cz - 0.27, cz + 0.27), gutterMat);
-    for (const m of [stack, cap]) { m.castShadow = true; m.receiveShadow = true; chim.add(m); }
-    roof.add(chim);
-    roofMats.push(brick);
+    const top = rf.hRidge + 1.1;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, top - WALL_H, 8).translate(cx, (top + WALL_H) / 2, cz), gutterMat);
+    const dishM = gutterMat.clone();
+    dishM.side = THREE.DoubleSide;
+    roofMats.push(dishM);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(0.5, 20, 10, 0, Math.PI * 2, 0, 1.15).rotateX(-1.0).translate(cx + 0.28, rf.hRidge + 0.6, cz), dishM);
+    const box = new THREE.Mesh(wbox(cx - 0.18, cx + 0.18, rf.hRidge - 0.05, rf.hRidge + 0.25, cz - 0.14, cz + 0.14), gutterMat);
+    const tipM = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff3a2a').multiplyScalar(2), transparent: true });
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6).translate(cx, top, cz), tipM);
+    for (const m of [pole, dish, box]) { m.castShadow = true; m.receiveShadow = true; mast.add(m); }
+    mast.add(tip);
+    roof.add(mast);
+    roofMats.push(tipM);
   }
   parent.add(roof);
   const pipeM = new THREE.MeshStandardMaterial({ color: '#7d8084', metalness: 0.6, roughness: 0.45 });
@@ -622,11 +637,37 @@ const FURNITURE = ['WoodenTable_01', 'Sofa_01', 'modern_wooden_cabinet', 'vintag
 const CONTAINER_COLS = ['#c2563e', '#4a7cab', '#5a9161', '#d8913e', '#9aa0a6'];
 
 const out_trees = [];
+// Plants on each frontier world: the ground's grass layers, tufts and tree leaves are recoloured from their scanned
+// greens into the world's own hue (teal on the colony, violet crops on the farm, gold at the port).
+// Grass on the ground only drifts toward the world's hue (soil and paths keep their own colours); leaves and tufts
+// take it fully. One shared colour, set per mission, so cached plant materials follow whichever world is loaded.
+const VEG = {
+  town: { color: '#5f8f84', amount: 0.32, mask: [0, 0, 1, 0], leaf: '#3fa595' },
+  farm: { color: '#86708c', amount: 0.22, mask: [1, 0, 0, 1], leaf: '#9a5a9a' },
+  yard: { color: '#a89a5a', amount: 0.25, mask: [0, 0, 0, 0], leaf: '#c9a040' },
+};
+const LEAF = { color: { value: new THREE.Color('#ffffff') }, amount: { value: 0 } };
+// (tracked by object: a cloned material copies userData but not its shader hook, so it needs its own)
+const foliage = new WeakSet();
+export function alienFoliage(m) {
+  if (foliage.has(m)) return;
+  foliage.add(m);
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uLeaf = LEAF.color;
+    sh.uniforms.uLeafK = LEAF.amount;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uLeaf; uniform float uLeafK;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))) * uLeaf * 2.6, uLeafK);`);
+  };
+  m.customProgramCacheKey = () => 'alien-leaf';
+  m.needsUpdate = true;
+}
 function prepTree(t, list) {
   t.traverse((m) => {
     if (!m.isMesh) return;
     m.material = m.material.clone();
-    if (m.material.alphaTest || m.material.transparent) { m.material.alphaTest = 0.5; m.material.alphaToCoverage = true; m.material.transparent = false; m.material.side = THREE.DoubleSide; }
+    if (m.material.alphaTest || m.material.transparent) { m.material.alphaTest = 0.5; m.material.alphaToCoverage = true; m.material.transparent = false; m.material.side = THREE.DoubleSide; alienFoliage(m.material); }
   });
   t.userData.tree = true;
   t.traverse((m) => { if (m.isMesh) m.userData.noAO = true; });
@@ -687,7 +728,7 @@ function buildCover(parent, o, map, rng, biome) {
         }
         break;
       }
-      const m = stone ? pbr('dark_rock', { color: '#c9c3b6' }) : pbr('brick_wall_02');
+      const m = stone ? pbr('dark_rock', { color: '#c9c3b6' }) : pbr('concrete_floor_02', { color: '#b9bec5' });
       const sx = along ? 0.36 : 1.02, sz = along ? 1.02 : 0.36;
       const w = new THREE.Mesh(wbox(cx - sx / 2, cx + sx / 2, 0, 0.74, cz - sz / 2, cz + sz / 2, 1.2), m);
       w.position.set(-cx, 0, -cz);
@@ -792,6 +833,8 @@ function buildCover(parent, o, map, rng, biome) {
 export function buildWorld(map, time, parent) {
   const biome = map.biome;
   const B = BIOMES[biome];
+  LEAF.color.value.set((VEG[biome] || {}).leaf || '#ffffff');
+  LEAF.amount.value = VEG[biome] ? 0.72 : 0;
   const rng = makeRng(map.objects.length * 31 + map.w * 7);
   out_trees.length = 0;
   const out = { objMeshes: new Map(), roofs: [], lamps: [], ground: null, trees: out_trees };
@@ -803,7 +846,8 @@ export function buildWorld(map, time, parent) {
   const overlay = overlayCanvas(map, makeRng(13));
   const gmat = groundMaterial(map, arrays, B.scale, overlay, biome === 'spire' ? glowCanvas(map) : null);
   gmat.userData.uniforms.uWet.value = night ? 0.85 : time === 'dusk' ? 0.4 : 0.12;
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(map.w + 30, map.h + 30), gmat);
+  // the ground runs far past the map, so the fog fades it into the sky at the horizon
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(map.w + 260, map.h + 260), gmat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(cx, 0, cz);
   ground.receiveShadow = true;
@@ -888,7 +932,7 @@ const arraysReady = new Map();
 export async function primeWorld(biome) {
   const B = BIOMES[biome];
   arraysReady.set(B.layers.join(','), await layerArrays(B.layers));
-  await primeTextures([...new Set([...B.tex, 'concrete_floor_02', 'weathered_planks', 'brick_wall_02', 'dark_rock', 'rusty_corrugated_iron', 'painted_plaster_wall', 'blue_plaster_weathered', 'clay_roof_tiles_02', 'grey_roof_tiles', 'wood_floor_worn', 'concrete_block_wall', 'wood_planks_dirt'])].filter(Boolean));
+  await primeTextures([...new Set([...B.tex, 'concrete_floor_02', 'weathered_planks', 'brick_wall_02', 'dark_rock', 'rusty_corrugated_iron', 'painted_plaster_wall', 'blue_plaster_weathered', 'clay_roof_tiles_02', 'grey_roof_tiles', 'wood_floor_worn', 'concrete_block_wall', 'wood_planks_dirt', 'concrete_panels', 'blue_metal_plate', 'metal_plate_02', 'painted_metal_shutter'])].filter(Boolean));
   await primeModels([...B.props, ...B.trees.map((t) => 'tree:' + t), ...B.trees.map((t) => 'tree1:' + t), ...(biome === 'spire' ? [] : FURNITURE)]);
 }
 
@@ -933,8 +977,16 @@ function dress(parent, map, rng, biome, night, out) {
       if (!road) continue;
       const [dx, dy] = road;
       const lx = x + dx * 0.4, lz = y + dy * 0.4;
-      const lamp = place(parent, 'street_lamp_01', lx, lz, { fitH: 3.0, rot: Math.atan2(dx, dy) + Math.PI });
-      if (lamp) { n++; out.lamps.push(lampHead(lamp)); }
+      const mast = buildFloodMast(night);
+      mast.scale.setScalar(0.62);
+      mast.position.set(lx, 0, lz);
+      mast.rotation.y = Math.atan2(-dx, -dy);
+      parent.add(mast);
+      mast.updateMatrixWorld(true);
+      const head = mast.userData.head.clone().applyMatrix4(mast.matrixWorld);
+      head.flood = mast.userData.aim.clone().applyMatrix4(mast.matrixWorld);
+      out.lamps.push(head);
+      n++;
     }
   }
   if (biome === 'yard') {
@@ -958,7 +1010,7 @@ function dress(parent, map, rng, biome, night, out) {
     }
   }
   const clutter = {
-    town: [['trashbag', 0.35], ['cardboard_box_01', 0.3], ['metal_trash_can', 0.55], ['fire_hydrant', 0.5], ['utility_box_01', 0.6], ['utility_box_02', 0.6], ['old_tyre', 0.38], ['planter_box_01', 0.6], ['plastic_crate_01', 0.3]],
+    town: [['trashbag', 0.35], ['cardboard_box_01', 0.3], ['metal_trash_can', 0.55], ['power_box_01', 0.5], ['utility_box_01', 0.6], ['utility_box_02', 0.6], ['ammo_box', 0.3], ['propane_tank', 0.4], ['plastic_crate_01', 0.3]],
     farm: [['old_tyre', 0.4], ['tree_stump_01', 0.6], ['propane_tank', 0.4], ['cement_bag', 0.4], ['dead_tree_trunk', 1.2], ['wooden_barrels_01', 0.7], ['portable_generator', 0.55]],
     yard: [['old_tyre', 0.42], ['cement_bag', 0.42], ['ammo_box', 0.3], ['propane_tank', 0.4], ['portable_generator', 0.55], ['power_box_01', 0.5], ['trashbag', 0.35], ['plastic_crate_01', 0.3]],
     spire: [['boulder_01', 0.45]],
@@ -1072,7 +1124,7 @@ function dress(parent, map, rng, biome, night, out) {
         }
       }
       vs.forEach((v, i) => {
-        v.obj.traverse((o) => { if (o.isMesh && o.material) { o.material.alphaTest = 0.45; o.material.transparent = false; o.material.side = THREE.DoubleSide; } });
+        v.obj.traverse((o) => { if (o.isMesh && o.material) { o.material.alphaTest = 0.45; o.material.transparent = false; o.material.side = THREE.DoubleSide; alienFoliage(o.material); } });
         instanced(parent, v.obj, lists[i]);
       });
     }
