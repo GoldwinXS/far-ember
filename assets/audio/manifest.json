@@ -26,7 +26,8 @@
   "uiSwitch": 5,
   "jingleWin": 2,
   "jingleLose": 2,
-  "jingleRank": 1
+  "jingleRank": 1,
+  "engineLoop": 1
  },
  "music": [
   "sting",
@@ -36,5 +37,11 @@
   "tension",
   "final",
   "spire"
- ]
+ ],
+ "loops": {
+  "engineLoop": [
+   0.3,
+   3.7664
+  ]
+ }
 }

@@ -20,7 +20,7 @@ const LIGHTS = {
   spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55, lift: 0.045 } },
   spire: { sunDir: [-0.45, 0.42, -0.7], sun: '#ffd4b0', sunI: 2.6, env: 0.6, exp: 0.9, fog: '#3d3647', fogNear: 24, fogFar: 70, rim: 0.18, hemi: ['#c0b8ff', '#201828', 0.25], grade: { sat: 1.0, contrast: 1.1, tint: [0.98, 0.98, 1.04], vig: 0.4, bloom: 0.3, lift: 0.045 } },
 };
-const BLUE = new THREE.Color('#47a8f5'), YELLOW = new THREE.Color('#ff9a5a'), ORANGE = new THREE.Color('#ff7a3d'), GREEN = new THREE.Color('#6fdc7a');
+const BLUE = new THREE.Color('#47a8f5'), YELLOW = new THREE.Color('#ff9a5a'), ORANGE = new THREE.Color('#ff7a3d'), GREEN = new THREE.Color('#6fdc7a'), MIDBLUE = new THREE.Color('#a9d8ff');
 const v3 = new THREE.Vector3();
 // bolt colours: Ember Company fires orange, the Pale fire cyan
 const BOLT = { ember: '#ff6a2a', pale: '#5ff0ff' };
@@ -403,6 +403,8 @@ export class View {
   }
 
   clearWorld() {
+    this.setArcs?.([]);
+    this.showArcPreview?.(null);
     // free the GPU side of everything the mission built; shared cached assets are simply re-uploaded when reused
     const seen = new Set();
     const free = (m) => { if (!m || seen.has(m)) return; seen.add(m); for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); };
@@ -465,6 +467,7 @@ export class View {
     const r = this.rig(u);
     if (!r) return;
     r.moving = true;
+    r.volleyRaised = false;
     const run = path.length > 4;
     if (r.isChar) setMoving(r, true, run);
     if (follow) this.follow = r;
@@ -483,6 +486,7 @@ export class View {
   // Animation hooks used by the rules code.
   pose(u, name) {
     const r = this.rig(u);
+    if (r) r.volleyRaised = false;
     if (!r || !r.isChar || this.instant) return Promise.resolve();
     switch (name) {
       case 'aim': setBase(r, 'aim'); return this.wait(0.25);
@@ -500,12 +504,14 @@ export class View {
   }
   aim(u, on) {
     const r = this.rig(u);
+    if (r) r.volleyRaised = false;
     if (r && r.isChar) setBase(r, on ? 'aim' : 'idle');
   }
   // After moving: crouch behind half cover, stand by full cover, face the cover.
   settle(u, covers) {
     const r = this.rig(u);
     if (!r || !r.isChar) return;
+    r.volleyRaised = false;
     const best = covers.reduce((a, c) => (!a || c.c > a.c ? c : a), null);
     r.crouched = !!best && best.c === 1;
     if (best) r.targetYaw = Math.atan2(best.dx, best.dy);
@@ -563,11 +569,13 @@ export class View {
     const beyond = b.clone().addScaledVector(dir, 7);
     if (this.map && !this.map.inside(Math.round(beyond.x), Math.round(beyond.z))) return;
     // right shoulder first, then the left, then wider: skip any spot with a wall behind it or a post in the sight line
-    for (const side of [0.95, -0.95, 1.35, -1.35]) {
-      const p = a.clone().addScaledVector(dir, -2.5).addScaledVector(right, side);
-      p.y = 1.75;
+    for (const side of [1.05, -1.05, 1.45, -1.45]) {
+      const p = a.clone().addScaledVector(dir, -3.0).addScaledVector(right, side);
+      p.y = 1.95;
       if (this.camBlocked(p) || this.postInSight(p, b) || !this.clearView(p, b)) continue;
       this.cine = { p, t: b.clone().setY(1.0) };
+      this.cineCur = { p: p.clone(), t: this.cine.t.clone() };
+      this.cineOut = null;
       this.skyOn(true);
       return;
     }
@@ -599,6 +607,8 @@ export class View {
     if (this.camBlocked(p) || !this.clearView(p, b) || p.distanceTo(b) > 13) return;
     if (group && group.some((u) => { const q = new THREE.Vector3(u.x, 0, u.y); return !this.clearView(p, q) || q.clone().sub(p).setY(0).normalize().dot(dir) < 0.94; })) return;
     this.cine = { p, t: b.clone().setY(0.9) };
+    this.cineCur = { p: p.clone(), t: this.cine.t.clone() };
+    this.cineOut = null;
     this.skyOn(true);
   }
   // Does a straight line from the camera to the target stay clear of walls?
@@ -610,7 +620,18 @@ export class View {
     }
     return true;
   }
-  endCine() { this.cine = null; this.stationNow = null; this.skyOn(false); }
+  // Compile every material the scene now holds before a cinematic starts, so its first frames do not stall
+  // (the drop ship on a fresh map froze the picture for about 2 s while its shaders compiled).
+  async precompile() {
+    if (this.instant) return;
+    try { await (this.renderer.compileAsync ? this.renderer.compileAsync(this.scene, this.camera) : this.renderer.compile(this.scene, this.camera)); } catch { /* compiled on first draw instead */ }
+  }
+  endCine() {
+    if (this.cine && this.cineCur && !this.carrier && !this.instant) this.cineOut = { p: this.camera.position.clone(), t: this.cineCur.t.clone(), t0: this.time, dur: 0.55 };
+    this.cine = null;
+    this.stationNow = null;
+    this.skyOn(false);
+  }
   // A fixed low camera for the menu lineup: eye at (px, 1.55, pz), looking at (tx, 0.8, tz).
   heroCam(px, pz, tx, tz) {
     this.cine = { p: new THREE.Vector3(px, 1.55, pz), t: new THREE.Vector3(tx, 0.8, tz) };
@@ -789,14 +810,71 @@ export class View {
     this.clearPath();
     this.clearAoe();
     this.showTargets([]);
+    this.showArcPreview(null);
     this.aimLine.visible = false;
   }
+
+  // Overwatch arcs on the ground: a fan that brightens toward its reach with a solid rim. The squad's are Ember
+  // orange, the enemies' Pale cyan. A preview (while aiming) is brighter and has range ticks.
+  arcMesh(arc, preview) {
+    const g = new THREE.Group();
+    const col = new THREE.Color(arc.side === 'ember' ? '#ffa04a' : '#6fe2ff');
+    const N = 32, half = arc.half ?? 0.61, r0 = 0.6, r1 = arc.r + 0.5;
+    const at = (a, r, y = 0) => [arc.x + Math.sin(a) * r, 0.05 + y, arc.y + Math.cos(a) * r];
+    const pos = [], cols = [];
+    const fade = preview ? [0.06, 0.3] : [0.03, 0.17];
+    for (let i = 0; i < N; i++) {
+      const a0 = arc.a - half + (2 * half * i) / N, a1 = arc.a - half + (2 * half * (i + 1)) / N;
+      pos.push(...at(a0, r0), ...at(a0, r1), ...at(a1, r1), ...at(a0, r0), ...at(a1, r1), ...at(a1, r0));
+      for (const k of [0, 1, 1, 0, 1, 0]) cols.push(col.r, col.g, col.b, fade[k]);
+    }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 4));
+    const fill = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    // the rim: two edges and the far arc as a ribbon, so it stays a few pixels wide on a phone screen
+    const rim = [];
+    const w = preview ? 0.07 : 0.05;
+    const ribbon = (pts) => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [ax, , az] = pts[i], [bx, , bz] = pts[i + 1];
+        const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1, nx = (-dz / l) * w, nz = (dx / l) * w;
+        rim.push(ax - nx, 0.055, az - nz, ax + nx, 0.055, az + nz, bx + nx, 0.055, bz + nz, ax - nx, 0.055, az - nz, bx + nx, 0.055, bz + nz, bx - nx, 0.055, bz - nz);
+      }
+    };
+    const outer = [];
+    for (let i = 0; i <= N; i++) outer.push(at(arc.a - half + (2 * half * i) / N, r1));
+    ribbon([at(arc.a - half, r0), ...outer, at(arc.a + half, r0)]);
+    if (preview) for (let r = 3; r < r1 - 0.6; r += 3) { const tick = []; for (let i = 0; i <= 8; i++) tick.push(at(arc.a - half + (2 * half * i) / 8, r)); ribbon(tick); }
+    const rg = new THREE.BufferGeometry();
+    rg.setAttribute('position', new THREE.Float32BufferAttribute(rim, 3));
+    const rimMesh = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: preview ? 0.95 : 0.7, depthWrite: false, side: THREE.DoubleSide }));
+    for (const m of [fill, rimMesh]) { m.renderOrder = 2; m.frustumCulled = false; m.userData.noAO = true; g.add(m); }
+    return g;
+  }
+  setArcs(list) {
+    const key = JSON.stringify(list.map((a) => [a.id, a.x, a.y, +a.a.toFixed(3), a.r, a.side]));
+    if (key === this.arcKey) return;
+    this.arcKey = key;
+    if (!this.arcGroup) { this.arcGroup = new THREE.Group(); this.scene.add(this.arcGroup); }
+    for (const c of [...this.arcGroup.children]) { c.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } }); this.arcGroup.remove(c); }
+    for (const a of list) this.arcGroup.add(this.arcMesh(a, false));
+  }
+  showArcPreview(arc) {
+    if (this.arcPreview) { this.arcPreview.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } }); this.scene.remove(this.arcPreview); this.arcPreview = null; }
+    if (arc) { this.arcPreview = this.arcMesh(arc, true); this.scene.add(this.arcPreview); }
+  }
   clearRange() { this.fill.count = 0; this.edges.count = 0; }
-  showRange(blue, yellow) {
+  // Move range in bands, one per action spent: the first filled blue, middle ones faint blue, and the last
+  // (every action left) inside a dashed orange edge.
+  showRange(bands) {
     const m = new THREE.Matrix4();
     let i = 0;
-    const fillBlue = BLUE.clone().multiplyScalar(0.75), fillDash = YELLOW.clone().multiplyScalar(0.45);
-    for (const [list, col] of [[blue, fillBlue]]) {
+    const last = bands.length - 1;
+    const blue = bands[0] || [], upTo = (k) => bands.slice(0, k + 1).flat();
+    const yellow = last > 0 ? upTo(last).slice(blue.length) : [];
+    const fills = bands.map((list, k) => [list, k === 0 ? BLUE.clone().multiplyScalar(0.75) : k < last ? BLUE.clone().multiplyScalar(0.3) : null]).filter((f) => f[1]);
+    for (const [list, col] of fills) {
       for (const [x, y] of list) {
         m.makeTranslation(x, 0.02, y);
         this.fill.setMatrixAt(i, m);
@@ -828,7 +906,8 @@ export class View {
         }
       }
     };
-    edge(aset, [...blue, ...yellow], YELLOW, 0, true);
+    if (last > 0) edge(aset, [...blue, ...yellow], YELLOW, 0, true);
+    if (last > 1) { const mid = upTo(last - 1); edge(new Set(mid.map(([x, y]) => key(x, y))), mid, MIDBLUE, 0.002, false); }
     edge(bset, blue, BLUE, 0.004, false);
     this.edges.count = e;
     this.edges.instanceMatrix.needsUpdate = true;
@@ -1067,6 +1146,11 @@ export class View {
     const r = this.rig(u);
     if (!r) return new THREE.Vector3(u.x, 1, u.y);
     r.root.updateMatrixWorld(true);
+    // the big Pale fire as they roar: the blast leaves just in front of the head, wherever the clip has put it
+    if (r.isChar && !r.gun && r.head && (u.kind === 'brute' || u.kind === 'overseer')) {
+      const e = r.root.matrixWorld.elements;
+      return r.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(e[8], 0, e[10]).normalize().multiplyScalar(0.28)).add(new THREE.Vector3(0, -0.06, 0));
+    }
     return r.muzzle.getWorldPosition(new THREE.Vector3());
   }
   targetPos(u) {
@@ -1211,6 +1295,56 @@ export class View {
     const color = shooter.side === 'pale' ? BOLT.pale : BOLT.ember;
     this.muzzleFlash(from, color);
     this.bolt(from, to, color, 1.1, 34).then(() => { if (lands) this.impact(to, false, null, color); });
+  }
+  // How far (degrees) the barrel points away from a point: 0 when the gun is aimed straight at it.
+  gunAngle(u, p) {
+    const r = this.rig(u);
+    if (!r) return 180;
+    r.root.updateMatrixWorld(true);
+    const m = this.muzzlePos(u), d = p.clone().sub(m).normalize();
+    const e = (r.gun || r.root).matrixWorld.elements;
+    const f = r.gun ? new THREE.Vector3(e[0], e[1], e[2]) : new THREE.Vector3(e[8], 0, e[10]);
+    if (!r.gun) d.y = 0;
+    return Math.acos(THREE.MathUtils.clamp(f.normalize().dot(d.normalize()), -1, 1)) * 57.3;
+  }
+  // Wait until a unit has finished turning to where it was told to face (at most maxT seconds).
+  async aimSettled(u, maxT = 0.6) {
+    const r = this.rig(u);
+    if (!r || this.instant) return;
+    const t0 = this.time;
+    while (this.time - t0 < maxT) {
+      let d = r.targetYaw - r.yaw;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      if (Math.abs(d) < 0.05) return;
+      await this.wait(0.04);
+    }
+  }
+  // A crossfire burst between turns: the shooter turns and raises the gun, fires n near misses along the barrel,
+  // then lowers it again a moment later. Skipped when the shooter is busy (walking, in a clip, dying).
+  async volley(shooter, target, n = 1, onFire) {
+    const r = this.rig(shooter), t = this.rig(target);
+    if (!r || !t || !r.root.visible || !t.root.visible || r.dying || r.moving || r.oneShot || r.volley) return false;
+    r.volley = true;
+    const raised = r.isChar && r.base !== 'aim' && r.base !== 'crouchAim';
+    try {
+      this.face(shooter, target.x, target.y, true);
+      if (raised) { setBase(r, 'aim', 0.2); r.volleyRaised = true; }
+      const aimAt = this.targetPos(target);
+      const t0 = this.time;
+      while (this.time - t0 < 0.9 && this.gunAngle(shooter, aimAt) > 10) await this.wait(0.05);
+      if (this.gunAngle(shooter, aimAt) > 22 || r.moving || r.dying) return false;
+      onFire?.();
+      for (let i = 0; i < n; i++) {
+        if (r.moving || r.dying || !t.root.visible || this.gunAngle(shooter, aimAt) > 24) break;
+        this.nearMiss(shooter, target);
+        await this.wait(0.11);
+      }
+      return true;
+    } finally {
+      r.volley = false;
+      if (raised) setTimeout(() => { if (r.volleyRaised && !r.dying && !r.moving) { r.volleyRaised = false; setBase(r, 'idle', 0.35); } }, 1300);
+    }
   }
   muzzleFlash(pos, color) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
@@ -1459,9 +1593,16 @@ export class View {
     this.removeUnit(u);
   }
   // A grenade, rocket or smoke canister flies in an arc to the target.
+  handPos(u) {
+    const r = this.rig(u);
+    const h = r && (r.grip ? r.grip.hand : r.model && r.model.getObjectByName('mixamorigRightHand'));
+    if (!h) return this.muzzlePos(u);
+    r.root.updateMatrixWorld(true);
+    return h.getWorldPosition(new THREE.Vector3());
+  }
   async lob(u, x, y, kind) {
     if (this.instant) return;
-    const from = this.muzzlePos(u);
+    const from = kind === 'rocket' ? this.muzzlePos(u) : this.handPos(u);
     const to = new THREE.Vector3(x, 0.15, y);
     const isRocket = kind === 'rocket';
     const g = new THREE.Mesh(isRocket ? new THREE.CylinderGeometry(0.04, 0.04, 0.35, 8).rotateX(Math.PI / 2) : new THREE.SphereGeometry(0.07, 10, 8),
@@ -1598,7 +1739,8 @@ export class View {
   loop(now) {
     requestAnimationFrame(this.loop);
     if (this.portraitJobs && this.portraitJobs.length) this.renderPortraits();
-    const raw = Math.min(0.25, (now - this.last) / 1000), dt = Math.min(0.05, raw);
+    // timeScale slows the whole game for frame captures (test tools only)
+    const raw = Math.min(0.25, (now - this.last) / 1000) * (this.timeScale ?? 1), dt = Math.min(0.05, raw);
     this.last = now;
     this.time += dt;
     // tweens run on the real clock, so a slow frame never stretches a cinematic
@@ -1644,7 +1786,16 @@ export class View {
     } else {
       this.cineCur = null;
       this.camera.position.set(c.tx + Math.sin(c.yaw) * cp * c.dist + sx, sp * c.dist, c.tz + Math.cos(c.yaw) * cp * c.dist + sz);
-      this.camera.lookAt(c.tx + sx, 0.5, c.tz + sz);
+      const o = this.cineOut;
+      if (o && this.time - o.t0 < o.dur) {
+        const k = (this.time - o.t0) / o.dur, e = k * k * k * (k * (k * 6 - 15) + 10);
+        const look = v3.set(c.tx + sx, 0.5, c.tz + sz).clone();
+        this.camera.position.lerpVectors(o.p, this.camera.position, e).y += Math.sin(Math.PI * e) * 2.2;
+        this.camera.lookAt(look.lerpVectors(o.t, look, e));
+      } else {
+        this.cineOut = null;
+        this.camera.lookAt(c.tx + sx, 0.5, c.tz + sz);
+      }
     }
     if (this.torch && this.squadCentre) this.torch.position.set(this.squadCentre.x, 2.4, this.squadCentre.y);
     this.fadeTrees();

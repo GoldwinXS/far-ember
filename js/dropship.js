@@ -36,13 +36,101 @@ function ringPoint(sec, u, push = 0) {
   const ey = 2 / (sa < 0 ? n * 1.5 : n), ex = 2 / n; // a flatter belly
   return [(w / 2 + push) * Math.sign(ca) * Math.abs(ca) ** ex, c + (h / 2 + push) * Math.sign(sa) * Math.abs(sa) ** ey, z];
 }
-// Skin a run of sections into a mesh. uv.x runs nose to tail, uv.y round the hull.
+const SECS = sections(6);
+// A point on the rendered skin at (z, u): the loft is flat between its ring points, so this blends the four ring
+// points round the spot. Parts placed with it sit exactly on the faces drawn. M is that loft's ring count.
+function surf(z, u, push = 0, M = 48) {
+  let i = 0;
+  while (i < SECS.length - 2 && SECS[i + 1][0] < z) i++;
+  const a = SECS[i], b = SECS[i + 1];
+  const t = Math.min(1, Math.max(0, (z - a[0]) / (b[0] - a[0])));
+  const uu = Math.min(1, Math.max(0, u)), j = Math.min(M - 1, Math.floor(uu * M)), f = uu * M - j;
+  const ring = (s) => { const p = ringPoint(s, j / M, push), q = ringPoint(s, (j + 1) / M, push); return [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]; };
+  const pa = ring(a), pb = ring(b);
+  return new THREE.Vector3(pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t, z);
+}
+// The skin's local frame at (z, u): n points out, tu runs round the hull, tz along it. q turns a part's +y to n,
+// its +x round the hull and its +z along the ship (toward the nose).
+function frame(z, u, push = 0, M = 48) {
+  const p = surf(z, u, push, M);
+  const tu = surf(z, u + 0.002, push, M).sub(surf(z, u - 0.002, push, M)).normalize();
+  const dz = surf(z + 0.02, u, push, M).sub(surf(z - 0.02, u, push, M));
+  const n = new THREE.Vector3().crossVectors(tu, dz).normalize();
+  const tz = new THREE.Vector3().crossVectors(tu, n);
+  const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(tu, n, tz));
+  return { p, n, tu, tz, q, z, u };
+}
+// Solve for u in [u0, u1] where a coordinate of the skin crosses a value (it must be monotonic over that span).
+function solveU(z, push, M, u0, u1, axis, v) {
+  const f0 = surf(z, u0, push, M)[axis];
+  for (let k = 0; k < 40; k++) {
+    const um = (u0 + u1) / 2, fm = surf(z, um, push, M)[axis];
+    if ((fm - v) * (f0 - v) > 0) u0 = um; else u1 = um;
+  }
+  return (u0 + u1) / 2;
+}
+// Right-hand wall x at height y, belly y under x, roof y over x (mirror x for the left side).
+const wallX = (z, y, push = 0, M = 48) => surf(z, solveU(z, push, M, 0, 0.5, 'y', y), push, M).x;
+const bellyY = (z, x, push = 0, M = 48) => surf(z, Math.abs(x) < 1e-4 ? 0 : solveU(z, push, M, 0, 0.25, 'x', Math.abs(x)), push, M).y;
+const roofY = (z, x, push = 0, M = 48) => surf(z, Math.abs(x) < 1e-4 ? 0.5 : solveU(z, push, M, 0.25, 0.5, 'x', Math.abs(x)), push, M).y;
+// How far the skin falls away below a flat footprint laid on the frame (offsets along tu and tz, in metres).
+function sag(fr, pts, push = 0, M = 48) {
+  const du = 0.002 / surf(fr.z, fr.u + 0.001, push, M).distanceTo(surf(fr.z, fr.u - 0.001, push, M));
+  let worst = 0;
+  for (const [a, b] of pts) {
+    const s = surf(fr.z - b, fr.u + a * du, push, M); // tz points to the nose, so +b is toward -z
+    worst = Math.max(worst, fr.p.clone().sub(s).dot(fr.n));
+  }
+  return worst;
+}
+// A raised plate that follows the skin: a grid over z0..z1 and u0..u1 lifted by t, its edges tucked under the skin.
+// On the bay's inner skin (inward) it stands toward the cabin instead.
+function patch(z0, z1, u0, u1, t, { push = 0, M = 48, nz = 4, nu = 6, inward = false } = {}) {
+  const lift = inward ? -t : t, tuck = inward ? 0.012 : -0.012;
+  const P = (iz, iu, l) => surf(z0 + ((z1 - z0) * iz) / nz, u0 + ((u1 - u0) * iu) / nu, push + l, M);
+  const pos = [], uv = [], idx = [];
+  for (let iz = 0; iz <= nz; iz++) for (let iu = 0; iu <= nu; iu++) {
+    pos.push(...P(iz, iu, lift).toArray());
+    uv.push(iu / nu, iz / nz);
+  }
+  for (let iz = 0; iz < nz; iz++) for (let iu = 0; iu < nu; iu++) {
+    const a = iz * (nu + 1) + iu, b = a + 1, c = a + nu + 1, d = c + 1;
+    if (inward) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c);
+  }
+  const top = new THREE.BufferGeometry();
+  top.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  top.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  top.setIndex(idx);
+  top.computeVertexNormals();
+  // the four side walls, from the top edge down into the skin
+  const wpos = [], wuv = [];
+  const rim = [];
+  for (let iu = 0; iu <= nu; iu++) rim.push([0, iu]);
+  for (let iz = 1; iz <= nz; iz++) rim.push([iz, nu]);
+  for (let iu = nu - 1; iu >= 0; iu--) rim.push([nz, iu]);
+  for (let iz = nz - 1; iz >= 0; iz--) rim.push([iz, 0]);
+  for (let k = 0; k < rim.length - 1; k++) {
+    const a = P(...rim[k], lift), b = P(...rim[k + 1], lift), c = P(...rim[k], tuck), d = P(...rim[k + 1], tuck);
+    const quad = inward ? [a, b, c, b, d, c] : [a, c, b, b, c, d];
+    for (const v of quad) { wpos.push(v.x, v.y, v.z); wuv.push(0, 0); }
+  }
+  const walls = new THREE.BufferGeometry();
+  walls.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
+  walls.setAttribute('uv', new THREE.Float32BufferAttribute(wuv, 2));
+  walls.computeVertexNormals();
+  return mergeGeometries([top.toNonIndexed(), walls]);
+}
+
+export const hullTools = { surf, frame, wallX, bellyY, roofY, SECS }; // for tools/ship_audit.js
+
+// Skin a run of sections into a mesh. uv.x runs nose to tail, uv.y round the hull. push may be a number or
+// a function of the section index (a flare).
 function loft(secs, M, u0 = 0, u1 = 1, push = 0, capNose = false) {
   const pos = [], uv = [], idx = [];
   const z0 = HULL[0][0], z1 = HULL[HULL.length - 1][0];
-  for (const s of secs) for (let j = 0; j <= M; j++) {
+  for (const [i, s] of secs.entries()) for (let j = 0; j <= M; j++) {
     const u = u0 + ((u1 - u0) * j) / M;
-    pos.push(...ringPoint(s, u, push));
+    pos.push(...ringPoint(s, u, typeof push === 'function' ? push(i, j / M) : push));
     uv.push((s[0] - z0) / (z1 - z0), u);
   }
   for (let i = 0; i < secs.length - 1; i++) for (let j = 0; j < M; j++) {
@@ -295,7 +383,9 @@ function hullMaterials() {
     rubber: new THREE.MeshStandardMaterial({ color: '#16181b', roughness: 0.7 }),
     redGlow: new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff3a24').multiplyScalar(2.2) }),
     glass: new THREE.MeshStandardMaterial({ color: '#0b121a', roughness: 0.06, metalness: 0.9, envMapIntensity: 1.6 }),
+    lens: new THREE.MeshStandardMaterial({ color: '#dfe6ee', roughness: 0.12, metalness: 0, emissive: '#ffffff', emissiveIntensity: 0.25 }),
   };
+  for (const [k, m] of Object.entries(hullMats)) m.name = k;
   return hullMats;
 }
 
@@ -313,76 +403,157 @@ export function buildDropship() {
     parent.add(m);
     return m;
   };
-  const secs = sections(6);
+  const secs = SECS;
   add(loft(secs, 48, 0, 1, 0, true), M.hull);
-  // tail collar round the ramp opening
+  // tail collar round the ramp opening: it flares out of the skin, and a frame ring at the open end closes the
+  // gaps between the collar, the skin and the bay lining
   const tail = secs.slice(-3);
-  add(loft(tail, 48, 0, 1, 0.05), M.dark);
-  // troop bay: an inner skin that follows the hull, a deck, a bulkhead, benches and red strip lights
+  add(loft(tail, 48, 0, 1, (i) => [-0.004, 0.05, 0.05][i]), M.dark);
+  const BP = -0.07, BM = 32; // the bay lining sits 7 cm inside the skin, on a coarser ring
+  const tailSec = HULL[HULL.length - 1];
+  const endRing = new THREE.Shape(), endHole = new THREE.Path();
+  for (let j = 0; j <= 48; j++) { const [x, y] = ringPoint(tailSec, j / 48, 0.05); if (j) endRing.lineTo(x, y); else endRing.moveTo(x, y); }
+  for (let j = 0; j <= BM; j++) { const [x, y] = ringPoint(tailSec, j / BM, BP); if (j) endHole.lineTo(x, y); else endHole.moveTo(x, y); }
+  endRing.holes.push(endHole);
+  add(new THREE.ShapeGeometry(endRing, 2), M.dark, 0, 0, tailSec[0], body, false);
+  // troop bay: the lining, a bulkhead, a deck out to the walls, jump seats, grab rails and lights
   const baySecs = secs.filter((s) => s[0] >= -0.7);
-  add(loft(baySecs, 32, 0, 1, -0.07), M.bay, 0, 0, 0, body, false);
+  add(loft(baySecs, BM, 0, 1, BP), M.bay, 0, 0, 0, body, false);
+  const zb = baySecs[0][0] + 0.02, deckTop = 1.17;
   const bulk = new THREE.Shape();
-  for (let j = 0; j <= 32; j++) { const [x, y] = ringPoint(baySecs[0], j / 32, -0.07); if (j) bulk.lineTo(x, y); else bulk.moveTo(x, y); }
-  add(new THREE.ShapeGeometry(bulk), M.seat, 0, 0, baySecs[0][0] + 0.02, body, false);
-  add(new THREE.BoxGeometry(1.9, 0.06, 4.6), M.panel, 0, 1.14, 1.7, body, false);
+  for (let j = 0; j <= BM; j++) { const p = surf(zb, j / BM, BP, BM); if (j) bulk.lineTo(p.x, p.y); else bulk.moveTo(p.x, p.y); }
+  add(new THREE.ShapeGeometry(bulk), M.seat, 0, 0, zb, body, false);
+  // the deck runs wall to wall, so nothing shows under it
+  const dzs = [zb, ...secs.map((s) => s[0]).filter((z) => z > zb + 0.05 && z < 3.94), 3.99];
+  const dpos = [], duv = [], didx = [];
+  for (const [i, z] of dzs.entries()) {
+    const xw = Math.min(Math.max(0.95, wallX(z, deckTop, BP, BM) + 0.015), wallX(z, deckTop) - 0.012); // never out through the skin
+    dpos.push(-xw, deckTop, z, xw, deckTop, z);
+    duv.push(0.5 - xw / 2.8, (z - zb) / 4.6, 0.5 + xw / 2.8, (z - zb) / 4.6);
+    if (i) { const a = (i - 1) * 2; didx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  const deck = new THREE.BufferGeometry();
+  deck.setAttribute('position', new THREE.Float32BufferAttribute(dpos, 3));
+  deck.setAttribute('uv', new THREE.Float32BufferAttribute(duv, 2));
+  deck.setIndex(didx);
+  deck.computeVertexNormals();
+  add(deck, M.panel, 0, 0, 0, body, false);
+  const lining = { push: BP, M: BM, inward: true };
+  const uAt = (z, y, s) => { const u = solveU(z, BP, BM, 0, 0.5, 'y', y); return s > 0 ? u : 1 - u; };
+  const span = (z, y0, y1, s) => { const a = uAt(z, y0, s), b = uAt(z, y1, s); return [Math.min(a, b), Math.max(a, b)]; };
   for (const s of [-1, 1]) {
-    add(new THREE.BoxGeometry(0.34, 0.1, 3.6), M.seat, s * 0.8, 1.52, 1.8, body, false);
-    add(new THREE.BoxGeometry(0.06, 0.55, 3.6), M.seat, s * 0.98, 1.84, 1.8, body, false);
-    add(new THREE.BoxGeometry(0.04, 1.3, 0.04), M.redGlow, s * 1.0, 1.85, 3.88, body, false);
-    for (let k = 0; k < 6; k++) add(new THREE.BoxGeometry(0.05, 0.42, 0.34), M.seat, s * 0.9, 1.84, 0.35 + k * 0.6, body, false);
-    add(new THREE.CylinderGeometry(0.018, 0.018, 3.8, 6).rotateX(Math.PI / 2), M.metal, s * 0.5, 2.78, 1.8, body, false);
-    for (let k = 0; k < 7; k++) add(new THREE.BoxGeometry(0.03, 0.22, 0.012), M.seat, s * 0.5, 2.66, 0.3 + k * 0.55, body, false);
+    // jump seats with their backs on the wall, each turned to follow the hull's taper, on legs to the deck
+    for (let k = 0; k < 6; k++) {
+      const z = 0.35 + k * 0.6;
+      const seat = new THREE.Group();
+      seat.name = 'seat';
+      seat.position.set(s * wallX(z, 1.84, BP, BM), 0, z);
+      seat.rotation.y = s * Math.atan((wallX(z + 0.2, 1.84, BP, BM) - wallX(z - 0.2, 1.84, BP, BM)) / 0.4);
+      body.add(seat);
+      add(new THREE.BoxGeometry(0.06, 0.6, 0.5), M.seat, -s * 0.03, 1.84, 0, seat, false);
+      add(new THREE.BoxGeometry(0.42, 0.07, 0.48), M.seat, -s * 0.26, 1.55, 0, seat, false);
+      add(new THREE.BoxGeometry(0.05, 0.2, 0.3), M.seat, -s * 0.085, 2.02, 0, seat, false);
+      for (const dz of [-0.19, 0.19]) add(new THREE.CylinderGeometry(0.018, 0.018, 0.37, 6), M.metal, -s * 0.42, 1.335, dz, seat, false);
+      // webbing on the wall above each seat
+      for (const dz of [-0.16, 0.16]) {
+        const [u0, u1] = span(z + dz, 2.16, 2.6, s);
+        add(patch(z + dz - 0.02, z + dz + 0.02, u0, u1, 0.01, { ...lining, nz: 1, nu: 4 }), M.seat, 0, 0, 0, body, false);
+      }
+    }
+    // red strip lights down each side of the door
+    const [d0, d1] = span(3.88, 1.25, 2.45, s);
+    add(patch(3.86, 3.9, d0, d1, 0.014, { ...lining, nz: 1, nu: 10 }), M.redGlow, 0, 0, 0, body, false);
+    // a grab rail hung from the roof on four hangers, with straps
+    const xr = s * 0.5, yr = Math.min(...[0.1, 0.9, 1.7, 2.5, 3.3, 3.7].map((z) => roofY(z, 0.5, BP, BM))) - 0.08;
+    add(new THREE.CylinderGeometry(0.018, 0.018, 3.6, 6).rotateX(Math.PI / 2), M.metal, xr, yr, 1.9, body, false);
+    for (const z of [0.3, 1.3, 2.3, 3.4]) {
+      const len = roofY(z, 0.5, BP, BM) - yr + 0.012;
+      add(new THREE.BoxGeometry(0.025, len, 0.025), M.metal, xr, yr + len / 2, z, body, false);
+    }
+    for (let k = 0; k < 7; k++) add(new THREE.BoxGeometry(0.03, 0.22, 0.012), M.seat, xr, yr - 0.1, 0.3 + k * 0.55, body, false);
+    // roof lights
+    for (let k = 0; k < 4; k++) {
+      const z = 0.5 + k * 0.85, a = solveU(z, BP, BM, 0.25, 0.5, 'x', 0.38), b = solveU(z, BP, BM, 0.25, 0.5, 'x', 0.26);
+      const [u0, u1] = s > 0 ? [a, b] : [1 - b, 1 - a];
+      add(patch(z - 0.06, z + 0.06, u0, u1, 0.012, { ...lining, nz: 1, nu: 2 }), M.warmGlow, 0, 0, 0, body, false);
+    }
     add(new THREE.BoxGeometry(0.45, 1.1, 0.22), M.panel, s * 0.48, 1.72, -0.45, body, false);
-    // webbing on the walls above the benches
-    for (let k = 0; k < 6; k++) add(new THREE.BoxGeometry(0.02, 0.5, 0.04), M.seat, s * 0.96, 2.25, 0.3 + k * 0.62, body, false);
   }
   // hull details: reaction thruster blocks, vents and access hatches on both flanks
   for (const s of [-1, 1]) {
+    // reaction thruster blocks, seated on the skin's frame and sunk past the curve under them, nozzles out of the face
     for (const [z, y] of [[-3.6, 2.15], [2.6, 2.45]]) {
-      add(new THREE.BoxGeometry(0.16, 0.22, 0.28), M.dark, s * (z < 0 ? 1.12 : 1.36), y, z);
-      for (const dz of [-0.08, 0.08]) add(new THREE.CylinderGeometry(0.03, 0.04, 0.06, 8).rotateZ(Math.PI / 2), M.metal, s * (z < 0 ? 1.22 : 1.46), y, z + dz, body, false);
+      const u = solveU(z, 0, 48, 0, 0.5, 'y', y), f = frame(z, s > 0 ? u : 1 - u);
+      const sk = sag(f, [[0.11, 0.14], [-0.11, 0.14], [0.11, -0.14], [-0.11, -0.14]]);
+      const up = 0.08 - sk - 0.01, blk = add(new THREE.BoxGeometry(0.22, 0.16, 0.28), M.dark, 0, 0, 0, body);
+      blk.quaternion.copy(f.q);
+      blk.position.copy(f.p).addScaledVector(f.n, up);
+      for (const dz of [-0.08, 0.08]) {
+        const nz = add(new THREE.CylinderGeometry(0.04, 0.03, 0.06, 8), M.metal, 0, 0, 0, body, false); // bell flares outward
+        nz.quaternion.copy(f.q);
+        nz.position.copy(f.p).addScaledVector(f.n, up + 0.08 + 0.02).addScaledVector(f.tz, dz);
+      }
     }
-    for (let k = 0; k < 4; k++) add(new THREE.BoxGeometry(0.04, 0.12, 0.34), M.dark, s * 1.47, 1.35, -0.9 + k * 0.48, body, false);
-    add(new THREE.BoxGeometry(0.03, 0.42, 0.5), M.panel, s * 1.34, 1.75, 3.3, body, false);
+    // vent strips and a hatch plate, laid on the skin's own frame so they sit flush
+    for (const [z, y, w, d, mat] of [[-0.9, 1.35, 0.12, 0.34, M.dark], [-0.42, 1.35, 0.12, 0.34, M.dark], [0.06, 1.35, 0.12, 0.34, M.dark], [0.54, 1.35, 0.12, 0.34, M.dark], [3.3, 1.75, 0.42, 0.5, M.panel]]) {
+      const u = solveU(z, 0, 48, 0, 0.5, 'y', y), f = frame(z, s > 0 ? u : 1 - u);
+      const sk = sag(f, [[w / 2, d / 2], [-w / 2, d / 2], [w / 2, -d / 2], [-w / 2, -d / 2]]);
+      const m = add(new THREE.BoxGeometry(w, 0.04, d), mat, 0, 0, 0, body, false);
+      m.quaternion.copy(f.q);
+      m.position.copy(f.p).addScaledVector(f.n, Math.min(0, 0.016 - sk)); // bottom edges under the skin, top up to 2 cm proud
+    }
   }
-  for (const x of [-0.32, 0.32]) for (let k = 0; k < 4; k++) add(new THREE.BoxGeometry(0.12, 0.03, 0.12), M.warmGlow, x, 2.96, 0.5 + k * 0.85, body, false);
-  add(new THREE.BoxGeometry(0.08, 0.08, 0.04), M.redGlow, 0.72, 2.62, 3.88, body, false);
+  // the red lamp over the door
+  { const [u0, u1] = span(3.88, 2.56, 2.66, 1); add(patch(3.84, 3.92, u0, u1, 0.03, { ...lining, nz: 1, nu: 2 }), M.redGlow, 0, 0, 0, body, false); }
   const bayLight = new THREE.PointLight('#ffd6a8', 3, 5, 1.8);
   bayLight.position.set(0, 2.5, 2.4);
   body.add(bayLight);
   // ramp, hinged at the bottom of the tail
   const ramp = new THREE.Group();
+  ramp.name = 'ramp';
   ramp.position.set(0, 1.09, 4.0);
   body.add(ramp);
   // the ramp is cut to the tail's own outline, so shut it closes the hull; open, it is a rounded-ended ramp
-  const tailSec = HULL[HULL.length - 1], base = tailSec[3] - tailSec[2] / 2;
+  const base = tailSec[3] - tailSec[2] / 2;
   const rampLen = tailSec[2] - 0.02;
   const outline = new THREE.Shape();
   for (let j = 0; j <= 40; j++) { const [x, y] = ringPoint(tailSec, j / 40, -0.03); if (j) outline.lineTo(x, Math.max(0, y - base)); else outline.moveTo(x, Math.max(0, y - base)); }
   const rg = new THREE.ExtrudeGeometry(outline, { depth: 0.1, bevelEnabled: false });
   rg.rotateX(Math.PI / 2);
   add(rg, M.tread, 0, 0, 0, ramp);
-  for (const x of [-0.45, 0.45]) add(new THREE.BoxGeometry(0.34, 0.006, rampLen - 0.2), M.metal, x, 0.004, rampLen / 2, ramp, false);
-  for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(1.6 - i * 0.05, 0.02, 0.05), M.dark, 0, 0.012, 0.25 + i * 0.3, ramp, false);
-  add(new THREE.BoxGeometry(2.0, 0.015, 0.1), M.ember, 0, 0.01, 0.08, ramp, false);
-  // canopy glass sits just proud of the nose
+  // tread plates and grip bars sit on the ramp's top face (y = 0), a hair sunk so no sliver of light shows under them
+  for (const x of [-0.45, 0.45]) add(new THREE.BoxGeometry(0.34, 0.008, rampLen - 0.2), M.metal, x, 0.002, rampLen / 2, ramp, false);
+  for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(1.6 - i * 0.05, 0.022, 0.05), M.dark, 0, 0.008, 0.25 + i * 0.3, ramp, false);
+  add(new THREE.BoxGeometry(2.0, 0.016, 0.1), M.ember, 0, 0.005, 0.08, ramp, false);
+  // canopy glass: a shallow blister that rises out of the nose, its edges tucked under the skin
   const nose = secs.filter((s) => s[0] > -5.2 && s[0] < -3.65);
-  add(loft(nose, 16, 0.385, 0.615, 0.012), M.glass, 0, 0, 0, body, false);
+  const bump = (k) => Math.sin(Math.PI * Math.min(1, Math.max(0, k))) ** 0.5;
+  add(loft(nose, 16, 0.385, 0.615, (i, t) => 0.018 * bump(i / (nose.length - 1)) * bump(t) - 0.006), M.glass, 0, 0, 0, body, false);
   // chin turret
   const turret = new THREE.Group();
+  turret.name = 'turret';
   turret.position.set(0, 0.92, -4.4);
   body.add(turret);
   add(new THREE.SphereGeometry(0.24, 18, 12), M.dark, 0, 0, 0, turret);
   for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.035, 0.04, 0.6, 8).rotateX(Math.PI / 2), M.metal, s * 0.08, -0.04, -0.4, turret);
-  // sensor fit on the spine and an antenna
-  add(new RoundedBoxGeometry(0.7, 0.16, 1.3, 2, 0.05), M.panel, 0, 3.25, -0.3);
-  add(new THREE.SphereGeometry(0.14, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.dark, 0, 3.32, 0.6);
-  add(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 5), M.metal, 0.25, 3.55, 0.9);
+  // sensor fit on the spine, pitched to the hull's slope and bedded into it; a radome and an aerial on a foot
+  {
+    const z0 = -0.95, z1 = 0.35, y0 = roofY(z0, 0.35), y1 = roofY(z1, 0.35);
+    const fit = add(new RoundedBoxGeometry(0.7, 0.16, 1.3, 2, 0.05), M.panel, 0, (y0 + y1) / 2 + 0.05, (z0 + z1) / 2);
+    fit.rotation.x = -Math.atan2(y1 - y0, z1 - z0);
+    add(new THREE.SphereGeometry(0.14, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.dark, 0, roofY(0.6, 0.14) - 0.012, 0.6);
+    const ay = roofY(0.9, 0.25);
+    add(new THREE.CylinderGeometry(0.035, 0.045, 0.05, 10), M.dark, 0.25, ay + 0.008, 0.9);
+    add(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 5), M.metal, 0.25, ay + 0.35, 0.9);
+  }
   // wings with an ember edge, swept back, a touch of droop
   const wings = [], pods = [];
   for (const s of [-1, 1]) {
     const sh = new THREE.Shape();
-    const pts = [[1.2, 1.1], [3.95, -0.4], [3.95, -2.3], [1.2, -2.35]].map(([x, y]) => [x * s, y]);
+    // the root follows the hull 3.5 cm inside the skin (allowing for the droop and the bevel), so it is buried
+    // in the wall and never shows inside the troop bay
+    const root = (z) => (wallX(z, 1.82) - 0.035 - 0.07 * 1.89) / 0.9976 + 0.05;
+    const pts = [[root(-1.1), 1.1], [3.95, -0.4], [3.95, -2.3], [root(2.35), -2.35], [root(0.6), -0.6]].map(([x, y]) => [x * s, y]);
     sh.moveTo(...pts[0]); for (const p of pts.slice(1)) sh.lineTo(...p);
     const g = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 });
     g.rotateX(-Math.PI / 2);
@@ -391,23 +562,40 @@ export function buildDropship() {
     wings.push(wing);
     // engine pod at the tip on a pivot, so it can swing from straight down (hover) to straight back (cruise)
     const pivot = new THREE.Group();
+    pivot.name = 'pod';
     pivot.position.set(s * 4.45, 1.98, 1.25);
     body.add(pivot);
     const prof = [[0.33, 1.2], [0.37, 1.28], [0.42, 1.27], [0.5, 1.16], [0.56, 0.9], [0.56, -0.55], [0.5, -0.95], [0.43, -1.22], [0.36, -1.24]].reverse().map(([r, y]) => new THREE.Vector2(r, y));
     const pod = add(new THREE.LatheGeometry(prof, 28).rotateX(-Math.PI / 2), M.podPanel, 0, 0, 0, pivot);
     add(pod.geometry, M.duct, 0, 0, 0, pivot, false);
-    add(new THREE.TorusGeometry(0.5, 0.035, 8, 28), M.ember, 0, 0, -1.0, pivot, false);
-    add(new THREE.CylinderGeometry(0.335, 0.335, 0.3, 24, 1, true).rotateX(Math.PI / 2), M.duct, 0, 0, -1.08, pivot, false);
+    // the cowl's radius at a station along the pod (intake toward -z)
+    const rAt = (z) => {
+      for (let k = 0; k < prof.length - 1; k++) {
+        const a = prof[k], b = prof[k + 1];
+        if (a.y !== b.y && (-z - a.y) * (-z - b.y) <= 0) return a.x + ((b.x - a.x) * (-z - a.y)) / (b.y - a.y);
+      }
+      return 0.5;
+    };
+    // an ember band round the intake, half sunk in the cowl
+    add(new THREE.TorusGeometry(rAt(-1.0), 0.03, 8, 28), M.ember, 0, 0, -1.0, pivot, false);
+    // intake duct from the lip back to the fan face; the fan's spinner runs back on a shaft to the face plate
+    add(new THREE.CylinderGeometry(0.332, 0.332, 0.25, 24, 1, true).rotateX(Math.PI / 2), M.duct, 0, 0, -1.075, pivot, false);
     add(new THREE.CircleGeometry(0.335, 24), M.dark, 0, 0, -0.95, pivot, false);
     for (let k = 0; k < 18; k++) {
-      const blade = add(new THREE.BoxGeometry(0.05, 0.3, 0.012), M.fan, 0, 0, -1.0, pivot, false);
+      const blade = add(new THREE.BoxGeometry(0.05, 0.31, 0.012), M.fan, 0, 0, -1.0, pivot, false);
       blade.rotation.set(0, 0.5, (k / 18) * Math.PI * 2, 'ZYX');
-      blade.position.x = Math.sin((k / 18) * Math.PI * 2) * -0.17;
-      blade.position.y = Math.cos((k / 18) * Math.PI * 2) * 0.17;
+      blade.position.x = Math.sin((k / 18) * Math.PI * 2) * -0.178;
+      blade.position.y = Math.cos((k / 18) * Math.PI * 2) * 0.178;
     }
     add(new THREE.ConeGeometry(0.08, 0.16, 16).rotateX(-Math.PI / 2), M.fan, 0, 0, -1.07, pivot, false);
-    for (const z of [-0.45, 0.15, 0.7]) add(new THREE.TorusGeometry(0.562, 0.007, 4, 40), M.dark, 0, 0, z, pivot, false);
-    add(new THREE.CylinderGeometry(0.555, 0.5, 0.36, 32, 1, true).rotateX(Math.PI / 2), M.heat, 0, 0, 0.82, pivot, false);
+    add(new THREE.CylinderGeometry(0.06, 0.06, 0.07, 16).rotateX(Math.PI / 2), M.fan, 0, 0, -0.97, pivot, false);
+    // panel seams pressed into the cowl
+    for (const z of [-0.45, 0.15, 0.5]) add(new THREE.TorusGeometry(rAt(z) + 0.002, 0.007, 4, 40), M.dark, 0, 0, z, pivot, false);
+    // a heat-blued band round the hot end that follows the cowl, its edges tucked into it
+    const band = [new THREE.Vector2(rAt(1.0) - 0.006, -1.0)];
+    for (let k = 0; k <= 6; k++) { const z = 1.0 - (0.4 * k) / 6; band.push(new THREE.Vector2(rAt(z) + 0.008, -z)); }
+    band.push(new THREE.Vector2(rAt(0.6) - 0.006, -0.6));
+    add(new THREE.LatheGeometry(band, 32).rotateX(-Math.PI / 2), M.heat, 0, 0, 0, pivot, false);
     add(new THREE.BoxGeometry(0.02, 0.18, 0.32), M.dark, s * 0.56, 0.12, -0.2, pivot, false);
     const nozzle = new THREE.MeshStandardMaterial({ color: '#3a3d42', roughness: 0.3, metalness: 1, side: THREE.DoubleSide });
     for (let k = 0; k < 14; k++) {
@@ -417,16 +605,19 @@ export function buildDropship() {
       pet.rotateX(-0.16);
       pivot.add(pet);
     }
-    add(new THREE.CircleGeometry(0.33, 24), M.dark, 0, 0, 0.93, pivot, false);
-    // the nozzle glow: a ring of hot metal deep inside (behind the turbine), a soft sprite and a cone of exhaust
-    const hot = add(new THREE.RingGeometry(0.1, 0.31, 32), new THREE.MeshBasicMaterial({ color: '#ff7a2a' }), 0, 0, 0.95, pivot, false);
+    // the exhaust: a liner from the turbine face back to the cowl lip, so the face plate meets a wall all round
+    add(new THREE.CylinderGeometry(0.36, 0.36, 0.32, 24, 1, true).rotateX(Math.PI / 2), M.duct, 0, 0, 1.085, pivot, false);
+    add(new THREE.CircleGeometry(0.362, 24), M.dark, 0, 0, 0.93, pivot, false);
+    // the nozzle glow: a ring of hot metal on the face plate, a soft sprite and a cone of exhaust
+    const hot = add(new THREE.RingGeometry(0.1, 0.35, 32), new THREE.MeshBasicMaterial({ color: '#ff7a2a' }), 0, 0, 0.933, pivot, false);
     for (let k = 0; k < 16; k++) {
-      const blade = add(new THREE.BoxGeometry(0.045, 0.24, 0.01), M.fan, 0, 0, 1.0, pivot, false);
+      const blade = add(new THREE.BoxGeometry(0.045, 0.29, 0.01), M.fan, 0, 0, 1.0, pivot, false);
       blade.rotation.set(0, -0.5, (k / 16) * Math.PI * 2, 'ZYX');
-      blade.position.x = Math.sin((k / 16) * Math.PI * 2) * -0.19;
-      blade.position.y = Math.cos((k / 16) * Math.PI * 2) * 0.19;
+      blade.position.x = Math.sin((k / 16) * Math.PI * 2) * -0.214;
+      blade.position.y = Math.cos((k / 16) * Math.PI * 2) * 0.214;
     }
     add(new THREE.ConeGeometry(0.1, 0.32, 18).rotateX(Math.PI / 2), M.fan, 0, 0, 1.14, pivot, false);
+    add(new THREE.CylinderGeometry(0.075, 0.075, 0.08, 16).rotateX(Math.PI / 2), M.fan, 0, 0, 0.965, pivot, false);
     const plume = add(new THREE.ConeGeometry(0.32, 2.2, 20, 1, true).rotateX(-Math.PI / 2), plumeMat(), 0, 0, 2.2, pivot, false);
     plume.userData.noAO = true;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ff9a5a', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
@@ -448,37 +639,54 @@ export function buildDropship() {
     g.rotateY(-Math.PI / 2);
     g.translate(0.05, 0, 0);
     const fin = new THREE.Group();
+    fin.name = 'fin';
     fin.position.set(s * 0.7, 2.95, 0);
     fin.rotation.z = s * -0.72;
     body.add(fin);
     add(g, M.panel, 0, 0, 0, fin);
     add(new THREE.BoxGeometry(0.14, 0.1, 1.05), M.ember, 0, 0.93, 3.78, fin, false);
+    // the strobe sits in a lens on a foot at the fin tip
+    add(new THREE.CylinderGeometry(0.04, 0.045, 0.03, 12), M.dark, 0, 0.99, 4.2, fin, false);
+    add(new THREE.SphereGeometry(0.034, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), M.lens, 0, 1.0, 4.2, fin, false);
     const strobe = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: new THREE.Color('#ffffff').multiplyScalar(3), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
-    strobe.position.set(0, 1.0, 4.25);
+    strobe.position.set(0, 1.02, 4.2);
     fin.add(strobe);
     strobes.push(strobe);
   }
-  // belly lift jets and landing lights
+  // belly lift jets: rings laid on the belly's own slope and bedded into it, the glow inside them
   const belly = [];
-  for (const [x, z] of [[-0.7, -1.6], [0.7, -1.6]]) {
-    const ring = add(new THREE.TorusGeometry(0.26, 0.04, 8, 20).rotateX(Math.PI / 2), M.dark, x, 0.72, z, body, false);
-    const glow = add(new THREE.CircleGeometry(0.22, 20).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ff9a5a', transparent: true, side: THREE.DoubleSide }), x, 0.7, z, body, false);
+  for (const x of [-0.7, 0.7]) {
+    const u = solveU(-1.6, 0, 48, 0, 0.25, 'x', 0.7), f = frame(-1.6, x < 0 ? 1 - u : u);
+    const sk = sag(f, [0, 1, 2, 3, 4, 5, 6, 7].map((k) => [Math.cos((k * Math.PI) / 4) * 0.3, Math.sin((k * Math.PI) / 4) * 0.3]));
+    const ring = add(new THREE.TorusGeometry(0.26, 0.04, 8, 20).rotateX(Math.PI / 2), M.dark, 0, 0, 0, body, false);
+    ring.quaternion.copy(f.q);
+    ring.position.copy(f.p).addScaledVector(f.n, -sk * 0.6);
+    const glow = add(new THREE.CircleGeometry(0.22, 20).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ff9a5a', transparent: true, side: THREE.DoubleSide }), 0, 0, 0, body, false);
+    glow.quaternion.copy(f.q);
+    glow.position.copy(f.p).addScaledVector(f.n, 0.004);
     belly.push(glow);
     ring.castShadow = false;
   }
-  // landing legs: nose and two mains, each with a strut, a link and a pad
+  // landing legs: nose and two mains. Each strut rises out of a fairing bedded in the belly, with a shock collar,
+  // a link, a brake line along it and a foot pad it runs into; the gear doors hang from the fairing's edges
   const legs = [];
-  for (const [x, z, h] of [[0, -3.4, 0.88], [-1.15, 1.6, 0.72], [1.15, 1.6, 0.72]]) {
+  for (const [x, z] of [[0, -3.4], [-1.15, 1.6], [1.15, 1.6]]) {
+    const h = bellyY(z, x) + 0.05; // the strut's top is 5 cm up inside the hull
     const leg = new THREE.Group();
+    leg.name = 'leg';
     leg.position.set(x, h, z);
     body.add(leg);
-    add(new THREE.CylinderGeometry(0.075, 0.075, h - 0.1, 10), M.metal, 0, -(h - 0.1) / 2, 0, leg);
-    add(new THREE.CylinderGeometry(0.11, 0.11, 0.25, 10), M.dark, 0, -0.14, 0, leg);
-    add(new THREE.BoxGeometry(0.05, 0.3, 0.18), M.dark, 0.09, -h * 0.55, 0.06, leg);
+    add(new THREE.BoxGeometry(0.36, 0.28, 0.6), M.dark, 0, -0.03, 0, leg);
+    add(new THREE.CylinderGeometry(0.075, 0.075, h - 0.02, 10), M.metal, 0, -(h - 0.02) / 2, 0, leg);
+    add(new THREE.CylinderGeometry(0.11, 0.11, 0.25, 10), M.dark, 0, -0.28, 0, leg);
+    add(new THREE.BoxGeometry(0.05, 0.3, 0.18), M.dark, 0.09, -h * 0.6, 0.06, leg);
     add(new THREE.CylinderGeometry(0.28, 0.34, 0.08, 20), M.dark, 0, -h + 0.04, 0, leg);
-    add(new THREE.CylinderGeometry(0.015, 0.015, h - 0.2, 6), M.rubber, -0.1, -(h - 0.2) / 2, -0.04, leg);
-    const door = add(new THREE.BoxGeometry(0.02, 0.32, 0.5), M.panel, (x >= 0 ? 1 : -1) * 0.22, -0.12, 0, leg, false);
-    door.rotation.z = (x >= 0 ? 1 : -1) * 0.5;
+    add(new THREE.CylinderGeometry(0.015, 0.015, h - 0.32, 6), M.rubber, -0.08, -(0.2 + (h - 0.32) / 2), -0.036, leg);
+    for (const d of x === 0 ? [-1, 1] : [Math.sign(x)]) {
+      add(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 8).rotateX(Math.PI / 2), M.metal, d * 0.18, -0.17, 0, leg, false);
+      const door = add(new THREE.BoxGeometry(0.02, 0.32, 0.5), M.panel, d * (0.18 + 0.16 * Math.sin(0.5)), -0.17 - 0.16 * Math.cos(0.5), 0, leg, false);
+      door.rotation.z = d * 0.5;
+    }
     legs.push({ leg, h });
   }
 
@@ -512,49 +720,64 @@ export function buildDropship() {
       for (const g of belly) g.material.color.setRGB(1, 0.6, 0.35).multiplyScalar(0.15 + th * (1 - this.tilt_k) * 3 * (0.9 + Math.random() * 0.2));
       const blink = (t % 1.6) < 0.08;
       for (const s of strobes) { s.material.opacity = blink ? 1 : 0; s.scale.setScalar(blink ? (th > 0.05 ? 0.4 : 0.14) : 0.01); }
+      this.onTick?.(dt, t); // flights.js hangs the engine sound here while the ship flies
     },
+    onTick: null,
   };
-  greebles(body, secs, M);
+  greebles(body, M);
   ship.setRamp(1); ship.setGear(1); ship.setTilt(1); ship.setThrust(0);
   root.traverse((o) => { if (o.isSprite || (o.material && o.material.transparent)) o.userData.noAO = true; });
   return ship;
 }
 
-// Vents, hatches, sensors, aerials, wing fences, hinges and grab handles. Each piece sits on the hull surface
-// (ringPoint gives the spot), and all of them merge into one mesh per material.
-function greebles(body, secs, M) {
+// Vents, hatches, sensors, aerials, wing fences, hinges and grab handles. Each piece is laid on the skin's own frame
+// (the spot, the outward normal and the slope both ways) and bedded deep enough that no edge lifts where the hull
+// curves away under it; plates on tight curves are built to follow the skin. All of them merge into one mesh per
+// material.
+function greebles(body, M) {
   const buckets = new Map();
-  const put = (geo, mat, pos, quat) => {
+  const put = (geo, mat, pos, quat, label) => {
+    label = label || `${geo.type.replace('Geometry', '')} @${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)}`;
     geo.applyQuaternion(quat || new THREE.Quaternion()).translate(pos.x, pos.y, pos.z);
     const g = geo.index ? geo.toNonIndexed() : geo;
+    g.userData.label = label;
     if (!buckets.has(mat)) buckets.set(mat, []);
     buckets.get(mat).push(g);
   };
-  const sec = (z) => secs.reduce((a, b) => (Math.abs(b[0] - z) < Math.abs(a[0] - z) ? b : a));
-  // a point on the hull at (z, u) and its outward normal
-  const at = (z, u, out = 0) => {
-    const s0 = sec(z), [x, y] = ringPoint(s0, u, out), [x2, y2] = ringPoint(s0, u + 0.002, out);
-    const n = new THREE.Vector3(y2 - y, -(x2 - x), 0).normalize();
-    return { p: new THREE.Vector3(x, y, z), n, q: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), n) };
-  };
+  const raw = (geo, mat, label) => put(geo, mat, new THREE.Vector3(), null, label); // already in body space
+  // the u span that covers half-width w (metres) round the hull at (z, u)
+  const du = (z, u, w) => (w * 0.002) / surf(z, u + 0.001).distanceTo(surf(z, u - 0.001));
+  // a spot on a frame: a along tu, b along tz, up along the normal
+  const on = (f, a, b, up) => f.p.clone().addScaledVector(f.tu, a).addScaledVector(f.tz, b).addScaledVector(f.n, up);
   for (const side of [1, -1]) {
     const u = (v) => (side > 0 ? v : 1 - v);
-    // louvred vents low on the flanks
+    // louvred vents low on the flanks: a plate that follows the turn of the belly, louvres along it
     for (const z of [-2.2, -1.6, 2.0]) {
-      const h = at(z, u(0.14));
-      put(new THREE.BoxGeometry(0.34, 0.03, 0.22), M.dark, h.p, h.q);
-      for (let k = 0; k < 4; k++) put(new THREE.BoxGeometry(0.3, 0.025, 0.02), M.metal, h.p.clone().addScaledVector(h.n, 0.02).add(new THREE.Vector3(0, 0, -0.08 + k * 0.055)), h.q);
+      const uc = u(0.14), w = du(z, uc, 0.17);
+      raw(patch(z - 0.11, z + 0.11, uc - w, uc + w, 0.02, { nu: 8, nz: 3 }), M.dark, `vent plate z ${z}`);
+      for (let k = 0; k < 4; k++) {
+        const zk = z - 0.08 + k * 0.055;
+        raw(patch(zk - 0.01, zk + 0.01, uc - w * 0.88, uc + w * 0.88, 0.032, { nu: 8, nz: 1 }), M.metal, `louvre z ${zk.toFixed(2)}`);
+      }
     }
-    // raised access panels with bolt heads
+    // raised access panels that follow the skin, a bolt at each corner
     for (const [z, uu] of [[-0.4, 0.36], [1.2, 0.38], [3.1, 0.33], [-3.2, 0.3]]) {
-      const h = at(z, u(uu));
-      put(new THREE.BoxGeometry(0.42, 0.018, 0.34), M.panel, h.p, h.q);
-      for (const [dx, dz] of [[-0.18, -0.14], [0.18, -0.14], [-0.18, 0.14], [0.18, 0.14]]) put(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 6), M.metal, h.p.clone().add(new THREE.Vector3(0, dx, dz)).addScaledVector(h.n, 0.01), h.q);
+      const uc = u(uu), w = du(z, uc, 0.21);
+      raw(patch(z - 0.17, z + 0.17, uc - w, uc + w, 0.015, { nu: 8, nz: 4 }), M.panel, `access panel z ${z}`);
+      for (const [a, b] of [[-0.86, -0.82], [0.86, -0.82], [-0.86, 0.82], [0.86, 0.82]]) {
+        const f = frame(z + b * 0.17, uc + a * w);
+        put(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 6), M.metal, on(f, 0, 0, 0.012), f.q);
+      }
     }
-    // grab handles beside the ramp and a step plate below the door line
-    for (let k = 0; k < 3; k++) { const h = at(3.6, u(0.2 + k * 0.05)); put(new THREE.TorusGeometry(0.05, 0.008, 6, 12, Math.PI), M.metal, h.p.clone().addScaledVector(h.n, 0.005), h.q); }
-    const step = at(2.4, u(0.09));
-    put(new THREE.BoxGeometry(0.28, 0.02, 0.16), M.metal, step.p.clone().addScaledVector(step.n, 0.04), step.q);
+    // grab handles beside the ramp, their ends bedded in the skin
+    for (let k = 0; k < 3; k++) {
+      const f = frame(3.6, u(0.2 + k * 0.05));
+      put(new THREE.TorusGeometry(0.05, 0.008, 6, 12, Math.PI).rotateY(Math.PI / 2), M.metal, on(f, 0, 0, -0.005), f.q);
+    }
+    // a step plate below the door line, on two brackets
+    const st = frame(2.4, u(0.09));
+    put(new THREE.BoxGeometry(0.28, 0.02, 0.16), M.metal, on(st, 0, 0, 0.05), st.q);
+    for (const a of [-0.1, 0.1]) put(new THREE.BoxGeometry(0.03, 0.07, 0.12), M.dark, on(st, a, 0, 0.015), st.q);
     // wing fences: thin upright plates across the wing top
     for (const wx of [2.3, 3.4]) put(new THREE.BoxGeometry(0.02, 0.14, 0.9), M.panel, new THREE.Vector3(side * wx, 2.0 - wx * 0.07 + 0.06, 0.55 + (wx - 2.3) * 0.5));
     // a hardpoint pylon under each wing
@@ -563,16 +786,19 @@ function greebles(body, secs, M) {
     // ramp hinges
     put(new THREE.CylinderGeometry(0.045, 0.045, 0.22, 10).rotateZ(Math.PI / 2), M.metal, new THREE.Vector3(side * 0.7, 1.09, 4.0));
   }
-  // spine: aerial blades, a sensor dome and a row of small intakes
-  for (const z of [-1.8, 0.4, 2.2]) { const h = at(z, 0.5); put(new THREE.BoxGeometry(0.015, 0.22, 0.12), M.dark, h.p.clone().add(new THREE.Vector3(0, 0.1, 0))); }
-  const dome = at(-3.0, 0.5);
-  put(new THREE.SphereGeometry(0.09, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), M.glass, dome.p);
-  for (let k = 0; k < 4; k++) { const h = at(1.0 + k * 0.3, 0.5); put(new THREE.BoxGeometry(0.18, 0.05, 0.12), M.dark, h.p.clone().add(new THREE.Vector3(0, 0.02, 0))); }
-  // nose: a pitot probe and two sensor pucks
+  // spine: aerial blades, a sensor dome and a row of small intakes, each on the spine's own slope
+  for (const z of [-2.0, -1.3, 2.3]) { const f = frame(z, 0.5); put(new THREE.BoxGeometry(0.015, 0.22, 0.12), M.dark, on(f, 0, 0, 0.095), f.q); }
+  const dome = frame(-3.0, 0.5);
+  const dk = sag(dome, [[0.09, 0], [-0.09, 0], [0, 0.09], [0, -0.09]]);
+  put(new THREE.SphereGeometry(0.09, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), M.glass, on(dome, 0, 0, -dk - 0.003), dome.q);
+  for (let k = 0; k < 4; k++) { const f = frame(1.0 + k * 0.3, 0.5); put(new THREE.BoxGeometry(0.18, 0.05, 0.12), M.dark, on(f, 0, 0, 0.012), f.q); }
+  // nose: a pitot probe and two sensor pucks set into the cheeks
   put(new THREE.CylinderGeometry(0.008, 0.012, 0.5, 6).rotateX(Math.PI / 2), M.metal, new THREE.Vector3(0.22, 1.32, -5.55));
-  for (const sx of [-0.35, 0.35]) put(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 12).rotateX(Math.PI / 2.4), M.glass, new THREE.Vector3(sx, 1.35, -5.05));
+  for (const uu of [0.2, 0.8]) { const f = frame(-4.95, uu); put(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 12), M.glass, on(f, 0, 0, 0.002), f.q); }
   for (const [mat, list] of buckets) {
     const m = new THREE.Mesh(mergeGeometries(list), mat);
+    m.name = 'greebles';
+    m.userData.pieces = list.map((g) => [g.userData.label, g.attributes.position.count]); // for tools/shipaudit.py
     m.castShadow = true; m.receiveShadow = true;
     body.add(m);
   }

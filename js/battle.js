@@ -1,6 +1,6 @@
 // Ember Squad: tactical rules. Units, actions, reaction fire, enemy AI and turn flow.
 import { dropIn } from './flights.js';
-import { CLASSES, WEAPONS, ENEMIES, POD_TABLE, DIFFICULTY, RANKS, HP_RANKS, makeRng } from './data.js';
+import { CLASSES, WEAPONS, ENEMIES, POD_TABLE, DIFFICULTY, RANKS, HP_RANKS, AP_MAX, ARC, makeRng } from './data.js';
 import { generateMap, reach, pathTo, OBJ, DIR4 } from './map.js';
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -33,7 +33,6 @@ export class Battle {
     this.camp = camp;
     this.mission = mission;
     this.diff = DIFFICULTY[camp.difficulty];
-    this.coop = !!camp.coop;
     const gen = generateMap(mission.biome, mission.seed, { type: mission.type });
     this.map = gen.map;
     this.gen = gen;
@@ -41,7 +40,6 @@ export class Battle {
     this.pods = [];
     this.smoke = [];
     this.turn = 1;
-    this.coopPhase = 0;
     this.phase = 'player';
     this.busy = false;
     this.sel = null;
@@ -124,7 +122,7 @@ export class Battle {
       hp: st.hp, maxHp: st.hp, aim: st.aim, move: st.move, def: 0, armour: 0, shield: 0,
       weapon: st.weapon, clip: w.clip, ammo: w.clip, dmgBonus: st.dmgBonus,
       grenades: st.grenades, rockets: s.cls === 'gunner' ? 1 : 0, medkits: st.medkits, smokes: s.cls === 'medic' ? 1 : 0,
-      perks: [...s.perks], ap: 2, ow: 0, hunker: false, moved: false, steady: false, refund: false, untouch: false,
+      perks: [...s.perks], ap: AP_MAX, shots: 0, ow: 0, owArc: null, hunker: false, moved: false, steady: false, refund: false, untouch: false,
       cool: { rush: 0, rapid: 0 }, kills: 0, owner: s.owner || 0, sight: 13, skin: s.skin, rank: s.rank || 0,
       alive: true, onMap: true, status: 'ok',
       // this mission's numbers for the service record
@@ -141,7 +139,7 @@ export class Battle {
       id: 'e' + this.nextId++, side: 'pale', kind: type, name: e.name, x, y,
       hp, maxHp: hp, aim: e.aim + this.diff.enemyAim + act * 2, move: e.move, def: e.def, armour: e.armour, shield: 0,
       dmg: [e.dmg[0] + dmgUp, e.dmg[1] + dmgUp], weapon: 'pale', fly: !!e.fly, pod, active: false,
-      ap: 2, ow: 0, hunker: false, cool: { shield: 0, spawn: 0 }, grenades: type === 'husk' && act >= 1 ? 1 : 0,
+      ap: 2, ow: 0, owArc: null, hunker: false, cool: { shield: 0, spawn: 0 }, grenades: type === 'husk' && act >= 1 ? 1 : 0,
       sight: 12, alive: true, onMap: true, perks: [],
     };
     this.units.push(u);
@@ -168,7 +166,7 @@ export class Battle {
     this.ui.cine?.(false);
     this.busy = false;
     if (first) this.select(first);
-    this.ui.banner(this.coop ? `${this.commanderName()}: your soldiers` : 'Your turn', `Turn ${this.turn}`);
+    this.ui.banner('Your turn', `Turn ${this.turn}`);
     this.ui.refresh();
   }
   start(quiet) {
@@ -180,10 +178,11 @@ export class Battle {
     for (const u of this.units) if (u.shield) this.view.setShield(u, true);
     for (const u of this.units) if (u.alive && u.onMap) this.view.settle?.(u, this.map.coverDirs(u.x, u.y));
     this.computeVis();
+    this.syncArcs();
     const first = this.soldiers().find((s) => this.canControl(s)) || this.soldiers()[0];
     if (first) this.view.focus(first.x, first.y - 1.5, { instant: true });
     this.select(first);
-    if (!quiet) this.ui.banner(this.coop ? `${this.commanderName()}: your soldiers` : 'Your turn', `Turn ${this.turn}`);
+    if (!quiet) this.ui.banner('Your turn', `Turn ${this.turn}`);
     this.ui.refresh();
   }
 
@@ -202,10 +201,37 @@ export class Battle {
     };
   }
   reachOf(u, mult = 2) { return reach(this.map, u.x, u.y, u.move * mult, this.passFor(u)); }
+  // A soldier covers this many tiles for each action spent moving.
+  stepOf(u) { return Math.ceil(u.move * 0.6); }
+  apFor(u, cost) { return Math.max(1, Math.ceil((cost - 0.01) / this.stepOf(u))); }
+  // Actions the next shot costs: by weapon and by shots already fired this turn.
+  shotCost(u, rapid) {
+    if (rapid && has(u, 'rapid')) return 2;
+    const ap = WEAPONS[u.weapon].ap || [1];
+    return ap[Math.min(u.shots || 0, ap.length - 1)];
+  }
+  // Is a unit inside a watcher's overwatch arc (with half a tile of grace at the edges)?
+  inArc(w, t) {
+    const a = w.owArc;
+    if (!a) return true;
+    const dx = t.x - w.x, dy = t.y - w.y, d = Math.hypot(dx, dy);
+    if (d > a.r + 0.5) return false;
+    let da = Math.atan2(dx, dy) - a.a;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    return Math.abs(da) <= ARC.half + Math.atan2(0.5, Math.max(1, d));
+  }
+  // Overwatch aim falls off with the arc's reach: a short arc keeps most of the soldier's aim.
+  arcPenalty(r) { return 0.08 + 0.32 * clamp((r - ARC.min) / (ARC.max - ARC.min), 0, 1); }
+  watchShots(u) { return Math.max(1, Math.min(u.ammo, u.ap + (has(u, 'guardian') ? 1 : 0))); }
+  // The arcs on the board: every soldier's, and the enemies' the squad can see.
+  syncArcs() {
+    this.view.setArcs?.(this.units.filter((u) => u.alive && u.onMap && u.ow > 0 && u.owArc && (u.side === 'ember' || u.seen))
+      .map((u) => ({ id: u.id, x: u.x, y: u.y, a: u.owArc.a, r: u.owArc.r, half: ARC.half, side: u.side, shots: u.ow })));
+  }
   canSee(a, b, range) { return this.map.canSee(a.x, a.y, b.x, b.y, range ?? a.sight); }
   seenBySquad(e) { return this.soldiers().some((s) => this.canSee(s, e)); }
-  canControl(u) { return u && u.side === 'ember' && u.alive && u.onMap && (!this.coop || u.owner === this.coopPhase); }
-  commanderName(p = this.coopPhase) { return (this.camp.names && this.camp.names[p]) || `Player ${p + 1}`; }
+  canControl(u) { return u && u.side === 'ember' && u.alive && u.onMap; }
   inSmoke(x, y) { return this.smoke.find((s) => Math.hypot(s.x - x, s.y - y) <= s.r); }
 
   targetsFor(u) {
@@ -234,10 +260,11 @@ export class Battle {
     if (has(shooter, 'finisher') && target.hp <= target.maxHp / 2) mods.push(['Finisher', 25]);
     if (shooter.steady) mods.push(['Steady aim', 20]);
     if (shooter.side === 'ember' && target.marked === this.turn) mods.push(['Marked', 15]);
-    if (opt.rapid) mods.push(['Rapid fire', -15]);
+    if (opt.burst) mods.push(['Burst', -10]);
     let hit = mods.reduce((a, [, v]) => a + v, 0);
     if (opt.reaction) {
-      const pen = has(shooter, 'sharpwatch') ? 0 : Math.round(hit * 0.3);
+      const frac = shooter.side === 'ember' && shooter.owArc ? this.arcPenalty(shooter.owArc.r) : 0.3;
+      const pen = has(shooter, 'sharpwatch') ? 0 : Math.round(hit * frac);
       if (pen) mods.push(['Overwatch', -pen]);
       hit -= pen;
       if (has(target, 'slippery')) { mods.push(['Slippery', -30]); hit -= 30; }
@@ -267,6 +294,7 @@ export class Battle {
       e.seen = sq.some((s) => this.canSee(s, e));
       this.view.setVisible(e, e.seen);
     }
+    this.syncArcs();
   }
   updateEnemyVis() {
     const sq = this.soldiers();
@@ -274,6 +302,7 @@ export class Battle {
       e.seen = sq.some((s) => this.canSee(s, e));
       this.view.setVisible(e, e.seen);
     }
+    this.syncArcs();
   }
 
   // ------------------------------------------------------------ selection and modes
@@ -308,16 +337,15 @@ export class Battle {
     const u = this.sel;
     this.view.clearRange();
     if (!u || u.ap <= 0 || this.busy) return;
-    const r = this.reachOf(u, u.ap >= 2 ? 2 : 1);
+    const r = reach(this.map, u.x, u.y, this.stepOf(u) * u.ap, this.passFor(u));
     this.moveReach = r;
-    const blue = [], yellow = [];
+    const bands = Array.from({ length: u.ap }, () => []);
     for (let y = 0; y < this.map.h; y++) for (let x = 0; x < this.map.w; x++) {
       const c = r.cost[this.map.idx(x, y)];
       if (!c || c === Infinity || !this.standable(x, y)) continue;
-      if (c <= u.move) blue.push([x, y]);
-      else if (u.ap >= 2) yellow.push([x, y]);
+      bands[Math.min(u.ap, this.apFor(u, c)) - 1].push([x, y]);
     }
-    this.view.showRange(blue, yellow);
+    this.view.showRange(bands);
   }
   nextSoldier() {
     const list = this.soldiers().filter((s) => this.canControl(s) && s.ap > 0);
@@ -340,10 +368,15 @@ export class Battle {
       if (u && u.side === 'ember' && this.healTargets().includes(u)) { this.target = u; this.view.showTargets([u]); this.ui.refresh(); }
       return;
     }
+    if (this.mode === 'watch') {
+      const tl = pick.tile || (u ? [u.x, u.y] : null);
+      if (tl) this.setWatch(tl[0], tl[1]);
+      return;
+    }
     if (u) {
       if (u.side === 'ember') { if (this.canControl(u)) { this.sfx.click?.(); this.select(u); } return; }
       if (this.mode === 'shoot' && this.targets.includes(u)) { this.setTarget(u); return; }
-      if (this.sel && this.sel.ap > 0 && this.sel.ammo > 0 && this.targetsFor(this.sel).includes(u)) { this.enterShoot(u); return; }
+      if (this.sel && this.sel.ap >= this.shotCost(this.sel) && this.sel.ammo > 0 && this.targetsFor(this.sel).includes(u)) { this.enterShoot(u); return; }
       this.ui.info(u);
       return;
     }
@@ -351,7 +384,7 @@ export class Battle {
     const [x, y] = pick.tile;
     if (!this.map.inside(x, y) || !this.moveReach) return;
     const c = this.moveReach.cost[this.map.idx(x, y)];
-    if (!c || c === Infinity || !this.standable(x, y) || (c > this.sel.move && this.sel.ap < 2)) {
+    if (!c || c === Infinity || !this.standable(x, y) || this.apFor(this.sel, c) > this.sel.ap) {
       this.pendingMove = null;
       this.view.clearPath();
       this.ui.refresh();
@@ -360,7 +393,7 @@ export class Battle {
     if (this.pendingMove && this.pendingMove[0] === x && this.pendingMove[1] === y) { this.confirmMove(); return; }
     this.pendingMove = [x, y];
     const path = pathTo(this.map, this.moveReach, x, y);
-    this.view.showPath(path, c > this.sel.move, this.map.coverDirs(x, y));
+    this.view.showPath(path, this.apFor(this.sel, c) >= this.sel.ap, this.map.coverDirs(x, y));
     this.sfx.click?.();
     this.ui.refresh();
   }
@@ -371,7 +404,7 @@ export class Battle {
     const path = pathTo(this.map, this.moveReach, x, y);
     this.pendingMove = null;
     if (Math.random() < 0.25) this.ui.bark?.(u, 'move');
-    this.run(() => this.moveUnit(u, path, c > u.move ? 2 : 1));
+    this.run(() => this.moveUnit(u, path, this.apFor(u, c)));
   }
 
   enterShoot(target) {
@@ -402,7 +435,53 @@ export class Battle {
   }
   cancelMode() {
     if (this.sel) this.view.aim?.(this.sel, false);
+    this.view.showArcPreview?.(null);
     this.select(this.sel);
+  }
+
+  // Overwatch: aim an arc, then every action left becomes a shot at an enemy that moves or fires inside it.
+  enterWatch() {
+    const u = this.sel;
+    this.mode = 'watch';
+    this.watchTap = null;
+    this.view.clearRange();
+    this.view.clearPath();
+    this.pendingMove = null;
+    let goal = null, best = Infinity;
+    for (const e of this.enemies()) if (e.seen) { const d = dist(u, e); if (d < best) { best = d; goal = e; } }
+    const [gx, gy] = goal ? [goal.x, goal.y] : this.lookAhead(u);
+    this.watch = { a: Math.atan2(gx - u.x, gy - u.y), r: goal ? clamp(Math.round(best) + 1, ARC.min, ARC.max) : 8 };
+    this.showWatch();
+  }
+  setWatch(x, y) {
+    const u = this.sel;
+    if (x === u.x && y === u.y) return;
+    if (this.watchTap && this.watchTap[0] === x && this.watchTap[1] === y) { this.confirmWatch(); return; }
+    this.watchTap = [x, y];
+    this.watch = { a: Math.atan2(x - u.x, y - u.y), r: clamp(Math.round(Math.hypot(x - u.x, y - u.y)), ARC.min, ARC.max) };
+    this.sfx.click?.();
+    this.showWatch();
+  }
+  showWatch() {
+    const u = this.sel, w = this.watch;
+    this.view.face(u, u.x + Math.sin(w.a) * 4, u.y + Math.cos(w.a) * 4, true);
+    this.view.showArcPreview?.({ x: u.x, y: u.y, a: w.a, r: w.r, half: ARC.half, side: 'ember' });
+    this.ui.refresh();
+  }
+  confirmWatch() {
+    const u = this.sel, w = this.watch;
+    if (!u || !w) return;
+    this.run(async () => {
+      this.view.showArcPreview?.(null);
+      u.ow = this.watchShots(u);
+      u.owArc = { a: w.a, r: w.r };
+      u.owShot = [];
+      u.ap = 0;
+      this.syncArcs();
+      this.ui.pop(u, `Overwatch ${u.ow}`, 'info');
+      this.ui.bark?.(u, 'watch');
+      await this.view.pose?.(u, 'overwatch');
+    });
   }
 
   enterAoe(kind) {
@@ -454,7 +533,7 @@ export class Battle {
     const u = this.sel, kind = this.aoeKind, [x, y] = this.aoe;
     this.run(async () => {
       this.view.clearAll();
-      u.ap = 0;
+      u.ap = Math.max(0, u.ap - (kind === 'rocket' ? 2 : 1));
       if (kind === 'smoke') u.smokes--; else if (kind === 'rocket') u.rockets--; else u.grenades--;
       this.view.face(u, x, y);
       await this.view.pose?.(u, 'throw', kind);
@@ -517,17 +596,19 @@ export class Battle {
     const can = u.ap > 0 && !this.busy;
     const targets = can ? this.targetsFor(u) : [];
     const A = (id, label, ok, note, extra) => out.push({ id, label, ok: !!ok, note, ...extra });
-    A('shoot', 'Shoot', can && u.ammo > 0 && targets.length, !u.ammo ? 'Out of ammo' : targets.length ? `${targets.length} in sight` : 'No targets', { key: '1' });
-    A('overwatch', 'Overwatch', can && u.ammo > 0, 'Shoot the first enemy that moves in sight', { key: '2' });
-    if (u.ammo < u.clip) A('reload', 'Reload', can, `${u.ammo}/${u.clip} shots`, { key: 'r' });
-    A('hunker', 'Hunker', can, '+30 defence until your next turn', { key: 'h' });
-    if (u.grenades > 0) A('grenade', 'Grenade', can, `${u.grenades} left. Breaks cover.`, { key: 'g', count: u.grenades });
-    if (u.rockets > 0) A('rocket', 'Rocket', can, 'Big blast. Breaks cover.', { count: u.rockets });
-    if (u.kind === 'scout') A('rush', 'Rush', can && !u.cool.rush, u.cool.rush ? `Ready in ${u.cool.rush} turns` : 'Gain an extra action this turn');
-    if (u.kind === 'marksman') A('steady', 'Steady', can && !u.steady, u.steady ? 'Already steady' : 'Next shot +20 aim, +15 crit');
-    if (has(u, 'rapid')) A('rapid', 'Rapid Fire', can && u.ammo > 0 && targets.length && !u.cool.rapid, u.cool.rapid ? `Ready in ${u.cool.rapid} turns` : 'Two shots at -15 aim');
-    if (u.medkits > 0) A('medkit', 'Medkit', can && this.healTargets().length, this.healTargets().length ? `${u.medkits} left` : 'Nobody hurt in reach', { count: u.medkits });
-    if (u.smokes > 0) A('smoke', 'Smoke', can, 'Cloud gives +20 defence', { count: u.smokes });
+    const w = WEAPONS[u.weapon], sc = this.shotCost(u);
+    A('shoot', (w.rolls || 1) > 1 ? 'Burst' : 'Shoot', can && u.ap >= sc && u.ammo > 0 && targets.length,
+      !u.ammo ? 'Out of ammo' : u.ap < sc ? `Needs ${sc} actions` : targets.length ? `${targets.length} in sight. ${w.note}` : 'No targets', { key: '1', cost: sc });
+    A('overwatch', 'Overwatch', can && u.ammo > 0, 'Aim an arc. One shot for each action left.', { key: '2', cost: u.ap });
+    if (u.ammo < u.clip) A('reload', 'Reload', can, `${u.ammo}/${u.clip} shots`, { key: 'r', cost: 1 });
+    A('hunker', 'Hunker', can, '+30 defence until your next turn. Uses every action left.', { key: 'h', cost: u.ap });
+    if (u.grenades > 0) A('grenade', 'Grenade', can, `${u.grenades} left. Breaks cover.`, { key: 'g', count: u.grenades, cost: 1 });
+    if (u.rockets > 0) A('rocket', 'Rocket', can && u.ap >= 2, u.ap < 2 ? 'Needs 2 actions' : 'Big blast. Breaks cover.', { count: u.rockets, cost: 2 });
+    if (u.kind === 'scout') A('rush', 'Rush', can && !u.cool.rush, u.cool.rush ? `Ready in ${u.cool.rush} turns` : 'Gain an extra action this turn', { cost: 0 });
+    if (u.kind === 'marksman') A('steady', 'Steady', can && !u.steady, u.steady ? 'Already steady' : 'Next shot +20 aim, +15 crit', { cost: 1 });
+    if (has(u, 'rapid')) A('rapid', 'Rapid Burst', can && u.ap >= 2 && u.ammo > 0 && targets.length && !u.cool.rapid, u.cool.rapid ? `Ready in ${u.cool.rapid} turns` : 'A burst for 2 actions', { cost: 2 });
+    if (u.medkits > 0) A('medkit', 'Medkit', can && this.healTargets().length, this.healTargets().length ? `${u.medkits} left` : 'Nobody hurt in reach', { count: u.medkits, cost: 1 });
+    if (u.smokes > 0) A('smoke', 'Smoke', can, 'Cloud gives +20 defence', { count: u.smokes, cost: 1 });
     if (this.evac && Math.abs(u.x - this.evac[0]) <= 1 && Math.abs(u.y - this.evac[1]) <= 1) A('evac', 'Evacuate', !this.busy, this.cache && this.cache.carrier === u.id ? 'Leave with the cache' : 'Leave the map');
     return out;
   }
@@ -540,8 +621,7 @@ export class Battle {
       case 'rapid': this.rapidPending = true; return this.enterShoot();
       case 'grenade': case 'rocket': case 'smoke': return this.enterAoe(id);
       case 'medkit': return this.enterHeal();
-      case 'overwatch':
-        return this.run(async () => { u.ow = has(u, 'guardian') ? 2 : 1; u.ap = 0; this.ui.pop(u, 'Overwatch', 'info'); this.ui.bark?.(u, 'watch'); await this.view.pose?.(u, 'overwatch'); });
+      case 'overwatch': return this.enterWatch();
       case 'hunker':
         return this.run(async () => { u.hunker = true; u.ap = 0; this.ui.pop(u, 'Hunkered', 'info'); await this.view.pose?.(u, 'hunker'); });
       case 'reload':
@@ -557,17 +637,19 @@ export class Battle {
   fire() {
     if (this.mode === 'heal') return this.confirmHeal();
     if (this.mode === 'aoe') return this.aoe && this.confirmAoe();
+    if (this.mode === 'watch') return this.confirmWatch();
     if (this.mode !== 'shoot' || !this.target) return;
     const u = this.sel, t = this.target, rapid = !!this.rapidPending;
+    const cost = this.shotCost(u, rapid);
+    if (u.ap < cost) return;
     this.rapidPending = false;
+    const rolls = WEAPONS[u.weapon].rolls || 1;
     this.run(async () => {
       this.view.clearAll();
-      u.ap = 0;
-      if (rapid) {
-        u.cool.rapid = 4;
-        await this.shoot(u, t, { rapid: true });
-        if (t.alive && u.ammo > 0 && u.alive) await this.shoot(u, t, { rapid: true });
-      } else await this.shoot(u, t);
+      u.ap -= cost;
+      u.shots = (u.shots || 0) + 1;
+      if (rapid) u.cool.rapid = 3;
+      await this.shoot(u, t, { rolls, burst: rolls > 1 });
       this.view.aim?.(u, false);
     });
   }
@@ -579,6 +661,7 @@ export class Battle {
     this.ui.refresh();
     try { await fn(); } catch (e) { console.error(e); }
     this.busy = false;
+    this.syncArcs();
     if (this.checkEnd()) return;
     const u = this.sel;
     if (u && u.alive && u.onMap && u.ap > 0) this.select(u);
@@ -614,7 +697,9 @@ export class Battle {
         u.seen = this.soldiers().some((s) => this.canSee(s, u));
         this.view.setVisible(u, u.seen);
       }
-      return this.reactions(u);
+      const r = await this.reactions(u);
+      if (r === 'hit' && u.side === 'pale' && i < path.length - 1) this.ui.pop(u, 'Stopped', 'info');
+      return r === 'ok' || (r === 'hit' && u.side === 'ember');
     }, u.side === 'ember' || u.seen);
     if (u.alive) {
       this.view.place(u);
@@ -624,19 +709,26 @@ export class Battle {
     if (revealed.size) await this.scramble([...revealed]);
   }
 
-  // Overwatch shots against a unit that just stepped onto a tile. Returns false if it died.
+  // Overwatch shots at a unit that moved or acted inside a watcher's arc. Each watcher shoots a given unit once a
+  // turn and spends one shot doing it. Returns 'dead', 'hit' (alive but hurt) or 'ok'.
   async reactions(mover) {
     const watchers = this.units.filter((w) => w.alive && w.onMap && w.side !== mover.side && w.ow > 0);
+    let hurt = false;
     for (const w of watchers) {
-      if (!mover.alive) return false;
+      if (!mover.alive) return 'dead';
       if (w.side === 'ember' && w.ammo <= 0) continue;
-      if (!this.canSee(w, mover)) continue;
+      if ((w.owShot ||= []).includes(mover.id)) continue;
+      if (!this.canSee(w, mover) || !this.inArc(w, mover)) continue;
       if (w.side === 'pale') { w.seen = true; this.view.setVisible(w, true); }
       w.ow -= 1;
+      w.owShot.push(mover.id);
       this.ui.pop(w, 'Overwatch shot', 'info');
+      const before = mover.hp + (mover.shield || 0);
       await this.shoot(w, mover, { reaction: true });
+      if (mover.alive && mover.hp + (mover.shield || 0) < before) hurt = true;
+      this.syncArcs();
     }
-    return mover.alive;
+    return !mover.alive ? 'dead' : hurt ? 'hit' : 'ok';
   }
 
   // Pods that were just spotted get a free move to cover. No shooting.
@@ -647,7 +739,9 @@ export class Battle {
     for (const p of pods) {
       p.active = true;
       const members = this.enemies().filter((e) => e.pod === p.id);
-      for (const e of members) e.active = true;
+      // the named group shows for its reveal even when it saw the squad from the fog (the shot was an empty street);
+      // computeVis at the end hides again any the squad cannot see
+      for (const e of members) { e.active = true; e.seen = true; this.view.setVisible(e, true); }
       if (!this.flags.seenAny) { this.flags.seenAny = true; }
       const lead = members[0];
       if (lead) {
@@ -668,8 +762,7 @@ export class Battle {
         this.ui.banner('Enemies spotted', members.map((m) => m.name).join(', '));
         if (near) this.ui.bark?.(near, 'spotted');
         if (this.mission.type !== 'final') this.sfx.music?.('battle');
-        await this.view.wait(1.1);
-        this.view.endCine?.();
+        await this.view.wait(0.9);
       }
       for (const e of members) {
         if (!e.alive) continue;
@@ -677,10 +770,18 @@ export class Battle {
         if (best && (best.x !== e.x || best.y !== e.y)) {
           const r = this.reachOf(e, 1);
           const path = pathTo(this.map, r, best.x, best.y);
-          if (path) await this.moveEnemyPath(e, path, false);
+          if (path) {
+            // the camera drifts with the group toward where it is running, so it stays in the middle of the frame
+            if (!this.view.cine) {
+              const pts = members.filter((m) => m.alive).map((m) => (m === e ? best : m));
+              this.view.focus(pts.reduce((t, q) => t + q.x, 0) / pts.length, pts.reduce((t, q) => t + q.y, 0) / pts.length);
+            }
+            await this.moveEnemyPath(e, path, false, false);
+          }
         }
         this.view.face(e, ...this.nearestSoldierXY(e));
       }
+      if (lead) { await this.view.wait(0.35); this.view.endCine?.(); }
     }
     this.computeVis();
   }
@@ -689,7 +790,7 @@ export class Battle {
     for (const s of this.soldiers()) { const d = dist(e, s); if (d < bd) { bd = d; best = s; } }
     return best ? [best.x, best.y] : [e.x, e.y + 1];
   }
-  async moveEnemyPath(e, path, reactions = true) {
+  async moveEnemyPath(e, path, reactions = true, follow = true) {
     const visibleAny = path.some(([x, y]) => this.soldiers().some((s) => this.map.canSee(s.x, s.y, x, y, s.sight)));
     if (!visibleAny) {
       [e.x, e.y] = path[path.length - 1];
@@ -700,7 +801,7 @@ export class Battle {
     if (!reactions) {
       e.seen = true;
       this.view.setVisible(e, true);
-      await this.view.walk(e, path, (i) => { [e.x, e.y] = path[i]; return true; }, true);
+      await this.view.walk(e, path, (i) => { [e.x, e.y] = path[i]; return true; }, follow);
       this.view.settle?.(e, this.map.coverDirs(e.x, e.y));
       return;
     }
@@ -709,7 +810,6 @@ export class Battle {
 
   // ------------------------------------------------------------ combat
   async shoot(s, t, opt = {}) {
-    const o = this.odds(s, t, opt);
     const isEmber = s.side === 'ember';
     if (isEmber) s.ammo = Math.max(0, s.ammo - 1);
     this.view.face(s, t.x, t.y, true);
@@ -718,11 +818,32 @@ export class Battle {
     const cine = visible && !opt.reaction && (this.forceCine ?? Math.random() < (isEmber ? 0.75 : 0.45));
     if (cine) { this.view.shoulderCam(s, t); this.ui.cine?.(true); }
     await this.view.pose?.(s, 'aim');
+    await this.view.aimSettled?.(s);
+    const rolls = opt.rolls || 1;
+    let landed = false;
+    for (let i = 0; i < rolls && s.alive; i++) {
+      if (!t.alive) {
+        const next = (isEmber ? this.targetsFor(s) : this.visibleTargets(s)).filter((e) => dist(e, t) <= 5).sort((a, b) => dist(a, t) - dist(b, t))[0];
+        if (!next) break;
+        t = next;
+        this.view.face(s, t.x, t.y, true);
+        await this.view.aimSettled?.(s, 0.4);
+      }
+      if (await this.roll(s, t, opt, i > 0)) landed = true;
+      if (i < rolls - 1) await this.view.wait(0.1);
+    }
+    if (cine) { await this.view.wait(t.alive && landed ? 0.7 : 1.0); this.view.endCine?.(); this.ui.cine?.(false); }
+    else if (!landed) await this.view.wait(0.35);
+  }
+  // One shot's dice and its effects. Returns true when it hit.
+  async roll(s, t, opt, more) {
+    const o = this.odds(s, t, opt);
+    const isEmber = s.side === 'ember';
     let hit = Math.random() * 100 < o.hit;
     if (hit && t.untouch && t.side === 'ember') { hit = false; t.untouch = false; this.ui.pop(t, 'Untouchable', 'info'); }
     const crit = hit && Math.random() * 100 < o.crit;
     if (isEmber && s.st) { s.st.shots++; if (hit) s.st.hits++; if (crit) s.st.crits++; }
-    if (isEmber && !opt.reaction && Math.random() < 0.35) this.ui.bark?.(s, 'shoot');
+    if (isEmber && !opt.reaction && !more && Math.random() < 0.35) this.ui.bark?.(s, 'shoot');
     this.sfx.shot?.(s.weapon === 'pale' ? (s.kind === 'brute' || s.kind === 'overseer' ? 'heavy' : 'pale') : s.weapon);
     const kind = s.weapon === 'pale' ? 'pale' : s.weapon;
     await this.view.shotFx(s, t, hit, kind);
@@ -730,11 +851,8 @@ export class Battle {
     if (s.steady) s.steady = false;
     if (!hit) {
       this.ui.pop(t, 'Missed', 'miss');
-      if (isEmber && Math.random() < 0.5) setTimeout(() => this.ui.bark?.(s, 'miss'), 350);
-      await this.view.wait(cine ? 1.0 : 0.35);
-      this.view.endCine?.();
-      this.ui.cine?.(false);
-      return;
+      if (isEmber && !more && Math.random() < 0.5) setTimeout(() => this.ui.bark?.(s, 'miss'), 350);
+      return false;
     }
     let dmg = o.dmg[0] + Math.floor(Math.random() * (o.dmg[1] - o.dmg[0] + 1));
     if (crit) dmg += Math.ceil(dmg * 0.5) + (has(s, 'headshot') ? 3 : 0);
@@ -742,7 +860,7 @@ export class Battle {
     else dmg = Math.max(1, dmg - (t.armour || 0));
     if (isEmber && crit && t.hp > dmg) this.ui.bark?.(s, 'crit');
     await this.damage(t, dmg, s, crit ? 'crit' : 'dmg');
-    if (cine) { await this.view.wait(t.alive ? 0.7 : 1.0); this.view.endCine?.(); this.ui.cine?.(false); }
+    return true;
   }
 
   async damage(t, dmg, source, style = 'dmg') {
@@ -792,12 +910,13 @@ export class Battle {
       this.ui.bark?.(source, 'kill');
       if ((has(source, 'hitrun') || has(source, 'followup')) && !source.refund && this.phase === 'player') {
         source.refund = true;
-        source.ap = Math.max(source.ap, 1);
+        source.ap = Math.min(AP_MAX, source.ap + 1);
         this.ui.pop(source, '+1 action', 'info');
       }
       if (has(source, 'untouchable')) source.untouch = true;
     }
     this.sfx.death?.(t.side);
+    this.syncArcs();
     if (t.side === 'ember') this.ui.refresh?.();
     await this.view.death(t);
     if (this.sel === t) this.sel = null;
@@ -847,15 +966,6 @@ export class Battle {
   // ------------------------------------------------------------ turn flow
   endTurn(auto) {
     if (this.busy || this.phase !== 'player' || this.over) return;
-    if (this.coop && this.coopPhase === 0 && this.soldiers().some((s) => s.owner === 1)) {
-      this.coopPhase = 1;
-      for (const s of this.soldiers()) if (s.owner === 0) s.ap = 0;
-      const first = this.soldiers().find((s) => this.canControl(s) && s.ap > 0);
-      this.ui.banner(`${this.commanderName()}: your soldiers`, `Turn ${this.turn}`);
-      this.select(first || null);
-      if (!first) this.endTurn(true);
-      return;
-    }
     this.run(() => this.enemyTurn());
   }
 
@@ -878,8 +988,7 @@ export class Battle {
       const a = ember ? pick(squad) : pick(foes), b = ember ? pick(foes) : pick(squad);
       if (a !== this.acting && dist(a, b) < 26) {
         const n = 1 + Math.floor(Math.random() * 3);
-        for (let i = 0; i < n; i++) setTimeout(() => this.view.nearMiss(a, b), i * 110);
-        this.sfx.distantShot?.(!ember);
+        this.view.volley(a, b, n, () => this.sfx.distantShot?.(!ember));
       }
       await this.view.wait(0.5 + Math.random() * 0.8);
     }
@@ -896,7 +1005,8 @@ export class Battle {
     const group = seen.length ? seen : this.soldiers();
     if (group.length) this.view.focus(group.reduce((a, u) => a + u.x, 0) / group.length, group.reduce((a, u) => a + u.y, 0) / group.length);
     await this.view.wait(0.8);
-    for (const e of this.enemies()) { e.ow = 0; e.hunker = false; e.ap = 2; if (e.cool.shield) e.cool.shield--; }
+    for (const e of this.enemies()) { e.ow = 0; e.owArc = null; e.hunker = false; e.ap = 2; if (e.cool.shield) e.cool.shield--; }
+    this.syncArcs();
     // patrols
     for (const p of this.pods) {
       if (p.active) continue;
@@ -1004,6 +1114,7 @@ export class Battle {
     if (e.kind === 'warden' && !e.cool.shield) {
       const allies = this.enemies().filter((a) => a !== e && a.active && !a.shield && dist(a, e) <= 7);
       if (allies.length) {
+        if ((await this.reactions(e)) === 'dead') return;
         const a = allies.sort((p, q) => p.hp / p.maxHp - q.hp / q.maxHp)[0];
         this.view.face(e, a.x, a.y);
         await this.view.pose?.(e, 'cast');
@@ -1023,6 +1134,7 @@ export class Battle {
         if (dist(e, t) > GRENADE.range) continue;
         const n = this.soldiers().filter((s) => Math.hypot(s.x - t.x, s.y - t.y) <= GRENADE.radius).length;
         if (n >= 2 && Math.random() < 0.7) {
+          if ((await this.reactions(e)) === 'dead') return;
           e.grenades--;
           e.ap = 0;
           this.view.face(e, t.x, t.y);
@@ -1068,8 +1180,12 @@ export class Battle {
     if (e.ap <= 0 || !e.alive) return;
     const vis = this.visibleTargets(e);
     if (vis.length) return this.enemyShoot(e, vis);
+    const [wx, wy] = this.nearestSoldierXY(e);
     e.ow = 1;
+    e.owArc = { a: Math.atan2(wx - e.x, wy - e.y), r: clamp(Math.round(Math.hypot(wx - e.x, wy - e.y)) + 2, 6, 11) };
+    e.owShot = [];
     e.ap = 0;
+    this.syncArcs();
     if (e.seen) this.ui.pop(e, 'Overwatch', 'info');
   }
   async enemyShoot(e, list) {
@@ -1078,6 +1194,7 @@ export class Battle {
       return { t, v: o.hit + (o.flanked ? 20 : 0) + (t.hp <= o.dmg[1] ? 15 : 0) };
     }).sort((a, b) => b.v - a.v)[0];
     e.ap = 0;
+    if ((await this.reactions(e)) === 'dead' || !pick.t.alive) return;
     e.seen = true;
     this.view.setVisible(e, true);
     await this.shoot(e, pick.t);
@@ -1148,18 +1265,17 @@ export class Battle {
   startPlayerTurn() {
     this.turn++;
     this.phase = 'player';
-    this.coopPhase = 0;
     for (const sm of this.smoke) sm.turns--;
     this.smoke = this.smoke.filter((s) => s.turns > 0);
     this.view.setSmoke(this.smoke);
     for (const s of this.soldiers()) {
-      s.ap = 2; s.ow = 0; s.hunker = false; s.moved = false; s.refund = false;
+      s.ap = AP_MAX; s.shots = 0; s.ow = 0; s.owArc = null; s.hunker = false; s.moved = false; s.refund = false;
       for (const k of Object.keys(s.cool)) if (s.cool[k]) s.cool[k]--;
       this.view.pose?.(s, 'idle');
     }
-    if (this.coop && !this.soldiers().some((s) => s.owner === 0)) this.coopPhase = 1;
+    for (const e of this.enemies()) e.owShot = [];
     this.computeVis();
-    this.ui.banner(this.coop ? `${this.commanderName()}: your soldiers` : 'Your turn', `Turn ${this.turn}`);
+    this.ui.banner('Your turn', `Turn ${this.turn}`);
     const first = this.soldiers().find((s) => this.canControl(s));
     this.select(first || null);
     this.ui.saveSnapshot?.(this.snapshot());
@@ -1204,7 +1320,7 @@ export class Battle {
   // ------------------------------------------------------------ save and resume
   snapshot() {
     const keep = ['id', 'rid', 'slot', 'side', 'kind', 'name', 'x', 'y', 'hp', 'maxHp', 'aim', 'move', 'def', 'armour', 'shield', 'weapon', 'clip', 'ammo', 'dmgBonus', 'dmg',
-      'grenades', 'rockets', 'medkits', 'smokes', 'perks', 'ap', 'ow', 'hunker', 'moved', 'steady', 'untouch', 'cool', 'kills', 'owner', 'sight', 'skin', 'rank', 'st', 'kit', 'callsign',
+      'grenades', 'rockets', 'medkits', 'smokes', 'perks', 'ap', 'shots', 'ow', 'owArc', 'hunker', 'moved', 'steady', 'untouch', 'cool', 'kills', 'owner', 'sight', 'skin', 'rank', 'st', 'kit', 'callsign',
       'alive', 'onMap', 'status', 'fly', 'pod', 'active', 'marked'];
     return {
       v: 1, missionId: this.mission.id, turn: this.turn, nextId: this.nextId,

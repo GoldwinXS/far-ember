@@ -9,10 +9,10 @@ import { makeBio, newRecord, recordMission } from './service.js';
 // the frontier worlds the Pale have taken, named on each mission
 const WORLDS = ['Vell', 'Tessaly Reach', 'Cinder Bay', 'Low Harrow', 'Greywater', 'Kestrel Moon', 'Halcyon', 'New Arden', 'Ostro', 'Fallow', 'Bramble Point', 'Saltmarsh'];
 
-export function newCampaign({ difficulty, coop, names }) {
+export function newCampaign({ difficulty }) {
   const seed = (Math.random() * 1e9) | 0;
   const camp = {
-    v: 1, seed, difficulty, coop: !!coop, names: names || ['Player 1', 'Player 2'],
+    v: 1, seed, difficulty,
     supplies: 160, threat: 0, wins: 0, missions: 0, nextId: 1, round: 0,
     roster: [], fallen: [], upgrades: {}, offers: [], battle: null, created: Date.now(),
   };
@@ -20,7 +20,6 @@ export function newCampaign({ difficulty, coop, names }) {
   CLASS_IDS.forEach((cls, i) => {
     for (let k = 0; k < 2; k++) {
       const s = makeSoldier(camp, cls, rng);
-      s.owner = coop ? (k + i) % 2 : 0;
       camp.roster.push(s);
     }
   });
@@ -46,7 +45,12 @@ export function makeSoldier(camp, cls, rng = makeRng((Math.random() * 1e9) | 0))
 export function upgradeSave(camp) {
   if (!camp) return camp;
   const rng = makeRng(camp.seed || 1);
+  // one commander only now: old two-commander saves hand every soldier to the one player
+  delete camp.coop;
+  delete camp.names;
+  if (camp.battle && camp.battle.units) for (const u of camp.battle.units) u.owner = 0;
   for (const s of camp.roster) {
+    s.owner = 0;
     s.callsign ??= '';
     s.kit ||= defaultKit(s.cls, s.look ?? 0);
     s.bio ||= makeBio(rng);
@@ -170,7 +174,6 @@ export function recruit(camp, cls) {
   if (camp.supplies < RECRUIT_COST) return null;
   camp.supplies -= RECRUIT_COST;
   const s = makeSoldier(camp, cls);
-  s.owner = camp.coop ? camp.roster.filter((x) => x.owner === 1).length < camp.roster.filter((x) => x.owner === 0).length ? 1 : 0 : 0;
   camp.roster.push(s);
   return s;
 }

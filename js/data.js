@@ -58,12 +58,18 @@ export const CLASSES = {
 };
 export const CLASS_IDS = ['scout', 'gunner', 'marksman', 'medic'];
 
+// Every soldier has 3 actions a turn. Moving costs 1 action for each stretch of ground; guns cost what their
+// weight says. ap: actions per shot by shot this turn (the last entry repeats). rolls: shots in one trigger pull.
+export const AP_MAX = 3;
+// Overwatch is aimed as an arc: this wide either side of its line, reaching between min and max tiles.
+export const ARC = { half: 0.61, min: 3, max: 12 };
+
 // range(d): aim change at distance d (tiles).
 export const WEAPONS = {
-  rifle: { name: 'Rifle', dmg: [3, 4], clip: 4, crit: 10, range: (d) => (d <= 4 ? 10 : d <= 9 ? 0 : -(d - 9) * 5) },
-  shotgun: { name: 'Shotgun', dmg: [4, 6], clip: 4, crit: 20, range: (d) => (d <= 2 ? 30 : d <= 4 ? 15 : d <= 6 ? 0 : -(d - 6) * 8) },
-  mg: { name: 'Machine gun', dmg: [3, 5], clip: 3, crit: 5, range: (d) => (d <= 5 ? 5 : d <= 10 ? 0 : -(d - 10) * 5) },
-  longrifle: { name: 'Long rifle', dmg: [4, 6], clip: 3, crit: 25, range: (d) => (d <= 3 ? -20 : d <= 6 ? -5 : 10) },
+  rifle: { name: 'Rifle', dmg: [3, 4], clip: 4, crit: 10, ap: [1, 2], note: '1 action a shot. A second shot this turn costs 2.', range: (d) => (d <= 4 ? 10 : d <= 9 ? 0 : -(d - 9) * 5) },
+  shotgun: { name: 'Shotgun', dmg: [3, 5], clip: 3, crit: 20, ap: [1], note: '1 action a shot. Move and fire all turn.', range: (d) => (d <= 2 ? 30 : d <= 4 ? 15 : d <= 6 ? 0 : -(d - 6) * 8) },
+  mg: { name: 'Machine gun', dmg: [2, 4], clip: 3, crit: 5, ap: [3], rolls: 3, note: 'A burst of 3 shots. Takes the whole turn.', range: (d) => (d <= 5 ? 5 : d <= 10 ? 0 : -(d - 10) * 5) },
+  longrifle: { name: 'Long rifle', dmg: [4, 6], clip: 3, crit: 25, ap: [2], note: '2 actions a shot.', range: (d) => (d <= 3 ? -20 : d <= 6 ? -5 : 10) },
   pale: { name: 'Lance', dmg: [2, 4], clip: 99, crit: 10, range: (d) => (d <= 4 ? 10 : d <= 10 ? 0 : -(d - 10) * 5) },
 };
 
@@ -102,7 +108,7 @@ export const PERKS = {
   gunner: [
     [P('extrabang', 'Extra Grenade', 'Carry one more grenade.'), P('spotter', 'Spotter', 'Your shots mark the target. The squad gets +15 aim against it this turn.')],
     [P('shred', 'Shredder', 'Your shots ignore armour and strip 1 armour off.'), P('bigboom', 'Big Boom', 'Your grenades and rockets hit a wider area.')],
-    [P('rapid', 'Rapid Fire', 'New action: shoot twice at -15 aim. Ready every 4 turns.'), P('tough', 'Tough', '+3 health.')],
+    [P('rapid', 'Rapid Burst', 'New action: a burst for 2 actions, so you can move first. Ready every 3 turns.'), P('tough', 'Tough', '+3 health.')],
   ],
   marksman: [
     [P('longshot', 'Long Shot', 'Shoot any enemy a squadmate can see.'), P('steadyhands', 'Steady Hands', '+10 aim if you have not moved this turn.')],
@@ -112,7 +118,7 @@ export const PERKS = {
   medic: [
     [P('surgeon', 'Field Surgeon', 'Medkits heal 2 more.'), P('extrakit', 'Extra Medkit', 'Carry one more medkit.')],
     [P('reach', 'Long Reach', 'Heal soldiers up to 6 tiles away.'), P('thicksmoke', 'Thick Smoke', 'Your smoke gives +40 defence instead of +20.')],
-    [P('guardian', 'Guardian', 'Overwatch can fire twice.'), P('lifeline', 'Lifeline', 'Once per mission, a soldier who would die stays at 1 health.')],
+    [P('guardian', 'Guardian', 'Overwatch gets one more shot.'), P('lifeline', 'Lifeline', 'Once per mission, a soldier who would die stays at 1 health.')],
   ],
 };
 

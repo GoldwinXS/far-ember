@@ -437,7 +437,7 @@ function prof(points, depth, bevel = 0.006, holes = []) {
   return g;
 }
 const tube = (r, x0, x1, y, seg = 12) => new THREE.CylinderGeometry(r, r, x1 - x0, seg).rotateZ(Math.PI / 2).translate((x0 + x1) / 2, y, 0);
-export const WEAPON_LEN = { rifle: 0.95, shotgun: 0.98, sniper: 1.18, lmg: 1.02, lance: 0.95 };
+export const WEAPON_LEN = { rifle: 0.935, shotgun: 0.975, sniper: 1.18, lmg: 1.02, lance: 0.875 };
 export function wornGuns(set) {
   // a worn-metal normal map gives the flat gun faces some surface
   if (!set || WMAT.steel.normalMap) return;

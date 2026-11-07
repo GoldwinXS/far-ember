@@ -1,15 +1,16 @@
 // Far Ember: HUD during missions and the screens between them.
 import { ICON } from './icons.js';
 import { wordmark } from './brand.js';
-import { CLASSES, ENEMIES, RANKS, PERKS, UPGRADES, DIFFICULTY, MISSION_TYPES, BIOMES, CLASS_IDS, RECRUIT_COST } from './data.js';
+import { CLASSES, ENEMIES, RANKS, PERKS, UPGRADES, DIFFICULTY, MISSION_TYPES, BIOMES, CLASS_IDS, RECRUIT_COST, AP_MAX, WEAPONS } from './data.js';
 import { rankName, perksPending, perkTier, squadSize, ready, missionBlurb, THREAT_MAX, WINS_FOR_FINAL } from './campaign.js';
 import { soldierStats } from './battle.js';
 import { PALETTE, defaultKit } from './armour.js';
 import { bioText, callsignIdeas, fullName, medalIcon, medalOf, barkLine } from './service.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+// what a class's gun costs to fire, for the recruit and soldier screens
+const gunLine = (w) => `${WEAPONS[w].name}: ${WEAPONS[w].note.charAt(0).toLowerCase()}${WEAPONS[w].note.slice(1)}`;
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const OWNER_COL = ['#ff8a3d', '#86ecf3'];
 
 export class UI {
   constructor(app) {
@@ -86,7 +87,7 @@ export class UI {
     const b = this.b;
     if (!b) return;
     $('#obj').textContent = this.objective();
-    $('#turnlbl').textContent = `Turn ${b.turn}${b.coop ? ` · ${b.commanderName()}` : ''}`;
+    $('#turnlbl').textContent = `Turn ${b.turn}`;
     // squad cards
     const sq = $('#squad');
     const list = b.units.filter((u) => u.side === 'ember');
@@ -95,11 +96,10 @@ export class UI {
       const gone = !u.alive || !u.onMap;
       const st = gone ? (u.status === 'evac' ? 'Out' : u.status === 'ko' ? 'KO' : 'Down') : '';
       return `<button class="card ${u === b.sel ? 'sel' : ''} ${gone || u.ap <= 0 ? 'spent' : ''} ${!gone && !b.canControl(u) ? 'other' : ''}" data-id="${u.id}" style="--cc:${cls.color}" ${gone ? 'disabled' : ''}>
-        ${b.coop ? `<span class="own" style="background:${OWNER_COL[u.owner]}"></span>` : ''}
         ${this.face(u, 'face')}
         <span class="nm">${esc(st || u.name.split(' ')[0])}</span>
         <span class="hp"><b style="width:${Math.max(0, (u.hp / u.maxHp) * 100)}%;background:${u.hp / u.maxHp < 0.34 ? 'var(--bad)' : u.hp / u.maxHp < 0.67 ? 'var(--warn)' : 'var(--good)'}"></b></span>
-        ${gone ? '' : `<span class="ap">${[0, 1].map((i) => `<i class="${i < u.ap ? '' : 'used'}"></i>`).join('')}</span>`}
+        ${gone ? '' : `<span class="ap">${Array.from({ length: Math.max(AP_MAX, u.ap) }, (_, i) => `<i class="${i < u.ap ? '' : 'used'}"></i>`).join('')}</span>`}
       </button>`;
     }).join('');
     sq.querySelectorAll('.card').forEach((el) => {
@@ -110,17 +110,18 @@ export class UI {
     const end = $('#endturn');
     end.disabled = b.busy || b.phase !== 'player';
     end.classList.toggle('armed', this.endArmed);
-    end.querySelector('span').textContent = this.endArmed ? 'Tap to confirm' : b.coop && b.coopPhase === 0 && b.soldiers().some((s) => s.owner === 1) ? `Pass to ${b.camp.names[1]}` : 'End turn';
+    end.querySelector('span').textContent = this.endArmed ? 'Tap to confirm' : 'End turn';
     this.hint('');
     if (b.phase !== 'player' || b.over || b.busy) { area.innerHTML = ''; return; }
     if (b.mode === 'shoot' && b.target) return this.shotPanel(area);
     if (b.mode === 'aoe') return this.aoePanel(area);
     if (b.mode === 'heal') return this.healPanel(area);
+    if (b.mode === 'watch' && b.watch) return this.watchPanel(area);
     const u = b.sel;
     if (!u) { area.innerHTML = ''; return; }
     const acts = b.actions();
     const mv = b.pendingMove ? `<button class="act move" data-a="move">${ICON.move}<span>Move here</span></button>` : '';
-    area.innerHTML = `<div class="bar glass">${mv}${acts.map((a) => `<button class="act ${a.id === 'shoot' && a.ok ? 'primary' : ''}" data-a="${a.id}" ${a.ok ? '' : 'disabled'} title="${esc(a.note || '')}">${ICON[a.id === 'medkit' ? 'medkit' : a.id] || ICON.shoot}<span>${esc(a.label)}</span>${a.count ? `<b class="n">${a.count}</b>` : ''}</button>`).join('')}</div>`;
+    area.innerHTML = `<div class="bar glass">${mv}${acts.map((a) => `<button class="act ${a.id === 'shoot' && a.ok ? 'primary' : ''}" data-a="${a.id}" ${a.ok ? '' : 'disabled'} title="${esc(a.note || '')}">${ICON[a.id === 'medkit' ? 'medkit' : a.id] || ICON.shoot}<span>${esc(a.label)}</span>${a.count ? `<b class="n">${a.count}</b>` : ''}${a.cost ? `<i class="cost">${'<b></b>'.repeat(a.cost)}</i>` : ''}</button>`).join('')}</div>`;
     area.querySelectorAll('.act').forEach((el) => {
       el.onclick = () => {
         this.endArmed = false;
@@ -130,7 +131,8 @@ export class UI {
     });
     if (b.pendingMove) {
       const c = b.moveReach.cost[b.map.idx(b.pendingMove[0], b.pendingMove[1])];
-      this.hint(c > u.move ? 'Dash: uses both actions. Tap again to go.' : 'Tap again to move');
+      const k = b.apFor(u, c), left = u.ap - k;
+      this.hint(left <= 0 ? `Uses every action left. Tap again to go.` : `Costs ${k} action${k === 1 ? '' : 's'}, ${left} left after. Tap again to go.`);
     }
   }
   hint(t) {
@@ -142,22 +144,39 @@ export class UI {
 
   shotPanel(area) {
     const b = this.b, u = b.sel, t = b.target;
-    const o = b.odds(u, t, { rapid: b.rapidPending });
+    const w = WEAPONS[u.weapon], burst = (w.rolls || 1) > 1, cost = b.shotCost(u, b.rapidPending);
+    const o = b.odds(u, t, { burst });
     const rows = o.mods.map(([l, v]) => `<span class="l">${esc(l)}</span><span class="v ${v < 0 ? 'neg' : l === 'Aim' ? '' : 'pos'}">${l === 'Aim' ? v : (v > 0 ? '+' : '') + v}</span>`).join('');
     area.innerHTML = `<div class="shot glass">
-      <div class="who"><span class="k">${b.rapidPending ? 'Rapid fire at' : 'Target'}</span><span class="nm" style="color:var(--pale)">${esc(t.name)}</span>
+      <div class="who"><span class="k">${burst ? `Burst of ${w.rolls} at` : 'Target'}</span><span class="nm" style="color:var(--pale)">${esc(t.name)}</span>
         ${o.flanked ? '<span class="flank">Flanked: easy crit</span>' : o.cover === 2 ? '<span class="k">In full cover</span>' : o.cover === 1 ? '<span class="k">In half cover</span>' : ''}
         <div class="cyc">${b.targets.length > 1 ? `<button id="tprev" aria-label="Previous target">${ICON.left}</button><button id="tnext" aria-label="Next target">${ICON.right}</button>` : ''}</div></div>
       <div class="big"><div class="pct">${o.hit}<small>%</small></div><div class="lab">To hit</div></div>
       <div class="stats">${rows}<span class="sep"></span>
         <span class="l">Crit chance</span><span class="v">${o.crit}%</span>
         <span class="l">Damage</span><span class="v">${o.dmg[0]}-${o.dmg[1]}</span>
-        <span class="l">Distance</span><span class="v">${o.dist.toFixed(1)}</span></div>
-      <div class="go"><button class="btn fire" id="firebtn">${ICON.shoot} Fire</button><button class="btn" id="cancelbtn">Back</button></div>
+        <span class="l">Distance</span><span class="v">${o.dist.toFixed(1)}</span>
+        <span class="l">Costs</span><span class="v">${cost >= u.ap ? `all ${cost} actions` : `${cost} of ${u.ap} actions`}</span></div>
+      <div class="go"><button class="btn fire" id="firebtn">${ICON.shoot} ${burst ? 'Burst' : 'Fire'}</button><button class="btn" id="cancelbtn">Back</button></div>
     </div>`;
     $('#firebtn').onclick = () => b.fire();
     $('#cancelbtn').onclick = () => { b.rapidPending = false; b.cancelMode(); };
     if ($('#tprev')) { $('#tprev').onclick = () => b.cycleTarget(-1); $('#tnext').onclick = () => b.cycleTarget(1); }
+  }
+  watchPanel(area) {
+    const b = this.b, u = b.sel, w = b.watch;
+    const shots = b.watchShots(u), sharp = (u.perks || []).includes('sharpwatch');
+    const keep = 100 - Math.round(b.arcPenalty(w.r) * 100);
+    area.innerHTML = `<div class="shot glass"><div class="who"><span class="k">Overwatch</span><span class="nm">${shots} shot${shots === 1 ? '' : 's'}</span></div>
+      <div class="stats" style="min-width:230px">
+        <span class="l">Reach</span><span class="v">${w.r} tiles</span>
+        <span class="l">Aim</span><span class="v ${sharp || keep >= 85 ? '' : 'neg'}">${sharp ? 'Full' : `${keep}% of normal`}</span>
+        <span class="sep"></span>
+        <span class="l" style="grid-column:1/-1;color:var(--ink)">One shot for each action left. Each enemy that moves or fires inside the arc gets shot once. A short arc aims better.</span></div>
+      <div class="go"><button class="btn fire" id="firebtn">${ICON.overwatch} Set</button><button class="btn" id="cancelbtn">Back</button></div></div>`;
+    $('#firebtn').onclick = () => b.fire();
+    $('#cancelbtn').onclick = () => b.cancelMode();
+    this.hint('Tap the ground to aim the arc. Tap the same spot again to set it.');
   }
   aoePanel(area) {
     const b = this.b, kind = b.aoeKind;
@@ -350,11 +369,12 @@ export class UI {
     this.modal(`<h2>How to play</h2>
       <ul>
         <li>Tap a soldier, then tap a tile to see the path. Tap the same tile again to move.</li>
-        <li>Each soldier gets 2 actions a turn. Blue tiles cost 1 action. Yellow tiles cost both.</li>
-        <li>Shooting, throwing and overwatch end that soldier's turn.</li>
+        <li>Each soldier gets 3 actions a turn. Blue tiles cost 1 action, pale blue 2, and the dashed orange edge marks how far every action left will take you.</li>
+        <li>Guns cost what they weigh. Rifle: 1 action, then 2 for a second shot. Shotgun: 1 a shot. Long rifle: 2. Machine gun: a burst of 3 shots that takes the whole turn.</li>
+        <li>Grenades, smoke, medkits and reloads cost 1 action. A rocket costs 2. Hunker and overwatch use every action left.</li>
         <li>Shields show cover at a tile. A full shield blocks 40% to hit. A half shield blocks 20%.</li>
         <li>Shoot enemies from the side, where their cover does not face you. That is a flank: no cover and a big crit chance.</li>
-        <li>Overwatch shoots the first enemy that moves where your soldier can see.</li>
+        <li>Overwatch: tap the ground to aim an arc. Each action left is one shot at an enemy that moves or fires inside it. A short arc aims better. Enemy arcs show in blue: do not walk into them.</li>
         <li>Grenades and rockets ignore cover and break it.</li>
         <li>Drag to move the camera. Pinch to zoom. Twist two fingers or use the arrow buttons to turn it.</li>
       </ul>
@@ -390,28 +410,16 @@ export class UI {
   }
 
   newGame() {
-    const st = { difficulty: 'classic', coop: false, names: ['Me', 'Dad'] };
+    const st = { difficulty: 'classic' };
     const draw = () => {
       this.modal(`<h2>New campaign</h2>
         <div class="field"><label>Difficulty</label></div>
         ${Object.entries(DIFFICULTY).map(([k, d]) => `<button class="choice ${st.difficulty === k ? 'on' : ''}" data-k="d_${k}"><b>${d.name}</b><span>${esc(d.desc)}</span></button>`).join('')}
-        <div class="field"><label>Players</label></div>
-        <button class="choice ${!st.coop ? 'on' : ''}" data-k="solo"><b>One commander</b><span>You move every soldier.</span></button>
-        <button class="choice ${st.coop ? 'on' : ''}" data-k="coop"><b>Two commanders</b><span>Split the squad. Pass the iPad each turn.</span></button>
-        ${st.coop ? `<div class="field"><label for="n0">Commander 1</label><input id="n0" maxlength="14" value="${esc(st.names[0])}"></div>
-        <div class="field"><label for="n1">Commander 2</label><input id="n1" maxlength="14" value="${esc(st.names[1])}"></div>` : ''}
         <div class="actions-row"><button class="btn" data-k="cancel">Cancel</button><button class="btn fire" data-k="go">Start</button></div>`, {
-        ...Object.fromEntries(Object.keys(DIFFICULTY).map((k) => [`d_${k}`, () => { st.difficulty = k; keep(); draw(); }])),
-        solo: () => { keep(); st.coop = false; draw(); },
-        coop: () => { keep(); st.coop = true; draw(); },
+        ...Object.fromEntries(Object.keys(DIFFICULTY).map((k) => [`d_${k}`, () => { st.difficulty = k; draw(); }])),
         cancel: () => this.closeModal(),
-        go: () => { keep(); this.closeModal(); this.app.startCampaign(st); },
+        go: () => { this.closeModal(); this.app.startCampaign(st); },
       });
-    };
-    const keep = () => {
-      const a = $('#n0'), c = $('#n1');
-      if (a) st.names[0] = a.value.trim() || 'Player 1';
-      if (c) st.names[1] = c.value.trim() || 'Player 2';
     };
     draw();
   }
@@ -474,7 +482,7 @@ export class UI {
     for (const p of s.perks) { const def = PERKS[s.cls].flat().find((x) => x.id === p); if (def) chips.push(`<span class="chip ok">${esc(def.name)}</span>`); }
     return `${this.face(s, 'pic', cls.color)}
       <span class="body"><span class="nm">${esc(fullName(s))}</span>
-      <span class="sub">${rankName(s)} · ${cls.name}${camp.coop ? ` · <span style="color:${OWNER_COL[s.owner]}">${esc(camp.names[s.owner])}</span>` : ''}</span>
+      <span class="sub">${rankName(s)} · ${cls.name}</span>
       <span class="stats"><b>Health ${st.hp}</b> <b>Aim ${st.aim}</b> <b>Move ${st.move}</b> <b>Kills ${s.kills}</b></span>
       ${s.medals && s.medals.length ? `<span class="medals">${s.medals.slice(0, 8).map((m) => medalIcon(m.id, 18)).join('')}</span>` : ''}
       ${chips.length ? `<span class="chips">${chips.join('')}</span>` : ''}</span>${extra}`;
@@ -493,7 +501,7 @@ export class UI {
   }
   recruitTab(camp) {
     return `<div class="panel glass"><p style="margin:0;color:#cfcab9">New soldiers cost ${RECRUIT_COST} supplies and start as recruits. You have ${camp.supplies}.</p></div>
-      <div class="grid">${CLASS_IDS.map((c) => `<div class="upg glass"><h3 style="color:${CLASSES[c].color}">${CLASSES[c].name}</h3><p>${esc(CLASSES[c].blurb)}</p>
+      <div class="grid">${CLASS_IDS.map((c) => `<div class="upg glass"><h3 style="color:${CLASSES[c].color}">${CLASSES[c].name}</h3><p>${esc(CLASSES[c].blurb)} ${esc(gunLine(CLASSES[c].weapon))}</p>
       <button class="btn" data-k="r_${c}" ${camp.supplies < RECRUIT_COST ? 'disabled' : ''}>Recruit · ${RECRUIT_COST}</button></div>`).join('')}</div>`;
   }
   fallenTab(camp) {
@@ -530,8 +538,6 @@ export class UI {
       t_skills: () => { keepNames(); this.soldierScreen(camp, s, 'skills'); },
       prev: () => go(-1), next: () => go(1),
       done: () => { keepNames(); this.app.save(); this.app.view.spin = null; this.base(camp, 'squad'); },
-      own0: () => { s.owner = 0; this.app.save(); this.soldierScreen(camp, s, tab); },
-      own1: () => { s.owner = 1; this.app.save(); this.soldierScreen(camp, s, tab); },
     };
     // paint changes show at once on the soldier in the hangar
     for (const key of Object.keys(PALETTE)) PALETTE[key].forEach((_, n) => {
@@ -573,8 +579,7 @@ export class UI {
     const pend = perksPending(s) > 0 ? perkTier(s) : null;
     const tiers = PERKS[s.cls];
     return `<div class="panel glass" style="display:flex;flex-direction:column;gap:12px">
-      <p class="muted" style="font-size:15px;color:#cfd5e0">${esc(CLASSES[s.cls].blurb)} XP ${s.xp}${s.rank < RANKS.length - 1 ? ` (next rank at ${RANKS[s.rank + 1].xp})` : ''}.</p>
-      ${camp.coop ? `<div class="opt"><label>Commander</label><div class="seg">${[0, 1].map((o) => `<button class="${s.owner === o ? 'on' : ''}" data-k="own${o}">${esc(camp.names[o])}</button>`).join('')}</div></div>` : ''}
+      <p class="muted" style="font-size:15px;color:#cfd5e0">${esc(CLASSES[s.cls].blurb)} ${esc(gunLine(CLASSES[s.cls].weapon))} XP ${s.xp}${s.rank < RANKS.length - 1 ? ` (next rank at ${RANKS[s.rank + 1].xp})` : ''}.</p>
       ${pend ? `<div class="opt"><label>Pick a new skill</label></div>${pend.map((p) => `<button class="choice" data-k="p_${p.id}"><b>${esc(p.name)}</b><span>${esc(p.desc)}</span></button>`).join('')}` : ''}
       <div class="opt"><label>Skills by rank</label></div>
       ${tiers.map((tier, i) => `<p class="muted" style="font-size:14px;color:${i < s.perks.length ? 'var(--ink)' : 'var(--dim)'}">${RANKS[i + 1].name}: ${tier.map((p) => (s.perks.includes(p.id) ? `<b>${esc(p.name)}</b>` : esc(p.name))).join(' or ')}</p>`).join('')}

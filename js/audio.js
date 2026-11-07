@@ -140,10 +140,114 @@ function tone(freq, dur, { type = 'sine', gain = 0.3, to = 0, delay = 0 } = {}) 
   o.stop(t + dur + 0.05);
 }
 
+// ------------------------------------------------------------ the dropship's engine
+// One continuous voice that follows the ship: a deep rumble (noise through two low-passes), a jet roar (band-passed
+// noise whose centre climbs with throttle), a breath of air on top, a soft turbine whine (two slightly detuned sines
+// and a quiet octave, gliding as the turbines spool) and, under it all, a looped engine recording whose speed follows
+// the throttle. Every change rides setTargetAtTime, the voice fades in and out on its own gain, and distance from the
+// camera lowers and darkens it. Built on any context, so tools can render it offline:
+// engineVoice(ac, dest, noise, loop?) -> { set(throttle, { tilt, dist, at }), stop(fade, at) }.
+const ENGINE_MIX = { rumble: 0.7, roar: 0.32, air: 0.012, whine: 0.004, hum: 0.09 };
+const ENGINE_FADE_IN = 1.2;
+export function engineVoice(ac, dest, noise, loop = null, mix = ENGINE_MIX) {
+  const t0 = ac.currentTime;
+  const filt = (type, f, q) => { const b = ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+  const amp = (v) => { const g = ac.createGain(); g.gain.value = v; return g; };
+  const chain = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n[n.length - 1]; };
+  const sources = [];
+  const noiseAt = (rate, offset) => {
+    const s = ac.createBufferSource();
+    s.buffer = noise; s.loop = true; s.playbackRate.value = rate;
+    s.start(t0, offset % noise.duration);
+    sources.push(s);
+    return s;
+  };
+  // the bus: level (throttle and distance), air absorption, a high-pass that keeps DC and sub-sonic thump out, the fade
+  const level = amp(0), air = filt('lowpass', 16000, 0.5), clean = filt('highpass', 28, 0.7), fade = amp(0);
+  chain(level, air, clean, fade, dest);
+  const rumble = amp(0), rumLo1 = filt('lowpass', 140, 0.6), rumLo2 = filt('lowpass', 140, 0.6);
+  chain(noiseAt(0.62, 0.3), rumLo1, rumLo2, rumble, level);
+  const roar = amp(0), roarBp = filt('bandpass', 400, 0.7), roarLo = filt('lowpass', 1200, 0.5);
+  chain(noiseAt(1, 2.7), roarBp, roarLo, roar, level);
+  const breath = amp(0);
+  chain(noiseAt(1.13, 4.9), filt('highpass', 3000, 0.5), breath, level);
+  const whine = amp(0), whineLo = filt('lowpass', 2400, 0.5);
+  chain(whineLo, whine, level);
+  const oscs = [[1, 'sine', 1], [1.004, 'sine', 1], [2.003, 'triangle', 0.25]].map(([mul, type, g]) => {
+    const o = ac.createOscillator();
+    o.type = type; o.frequency.value = 520 * mul;
+    chain(o, amp(g), whineLo);
+    o.start(t0);
+    sources.push(o);
+    return [o, mul];
+  });
+  let hum = null, humRate = null;
+  if (loop) {
+    const s = ac.createBufferSource();
+    s.buffer = loop.buffer; s.loop = true; s.loopStart = loop.start; s.loopEnd = loop.end;
+    s.start(t0, loop.start + Math.random() * (loop.end - loop.start));
+    sources.push(s);
+    hum = chain(s, amp(0));
+    hum.connect(level);
+    humRate = s.playbackRate;
+  }
+  fade.gain.setValueAtTime(0, t0);
+  fade.gain.linearRampToValueAtTime(1, t0 + ENGINE_FADE_IN);
+  let last = -1, done = false;
+  const clamp = (v) => Math.min(1, Math.max(0, v));
+  return {
+    // throttle 0..1 (even at 0 the turbines idle), tilt 0 pods down .. 1 swung back, dist from the camera in metres
+    set(k, { tilt = 0, dist = 8, at = ac.currentTime } = {}) {
+      if (done || at - last < 0.03) return;
+      last = at;
+      const e = 0.14 + 0.86 * clamp(k), hover = 1 - clamp(tilt);
+      const T = (p, v, tau = 0.2) => p.setTargetAtTime(v, at, tau);
+      T(level.gain, Math.min(1, (12 / Math.max(1, dist)) ** 0.7), 0.12);
+      T(air.frequency, Math.min(16000, Math.max(1200, 16000 * (12 / Math.max(12, dist)) ** 0.8)), 0.12);
+      T(rumble.gain, mix.rumble * e ** 1.2 * (0.8 + 0.4 * hover));
+      T(rumLo1.frequency, 80 + 150 * e); T(rumLo2.frequency, 80 + 150 * e);
+      // the roar's centre climbs with throttle; a band-pass on noise passes more power the higher it sits, so the
+      // gain falls as it climbs and the low-pass behind it follows: the timbre opens up without turning to hiss
+      const c = 180 + 900 * e ** 1.3 * (0.8 + 0.4 * (1 - hover));
+      T(roar.gain, mix.roar * e ** 1.7 * (0.85 + 0.3 * hover) * Math.sqrt(400 / c));
+      T(roarBp.frequency, c); T(roarLo.frequency, Math.min(6000, c * 2.2));
+      T(breath.gain, mix.air * e ** 2.4);
+      T(whine.gain, mix.whine * (0.35 + 0.65 * e));
+      for (const [o, mul] of oscs) T(o.frequency, (420 + 820 * e) * mul, 0.35); // turbines spool slower than the roar
+      if (hum) { T(hum.gain, mix.hum * (0.5 + 0.5 * e)); T(humRate, 0.78 + 0.5 * e, 0.35); }
+    },
+    // fade to silence over dur seconds, then free everything
+    stop(dur = 1.4, at = ac.currentTime) {
+      if (done) return;
+      done = true;
+      // the fade gain only ever ramps, so its value now is known: hold it there and ramp to zero
+      const v = at >= t0 + ENGINE_FADE_IN ? 1 : Math.max(0, (at - t0) / ENGINE_FADE_IN);
+      fade.gain.cancelScheduledValues(at);
+      fade.gain.setValueAtTime(v, at);
+      fade.gain.linearRampToValueAtTime(0, at + dur);
+      for (const s of sources) s.stop(at + dur + 0.05);
+      sources[0].onended = () => fade.disconnect();
+    },
+  };
+}
+let engineNoise = null;
+function shipEngine() {
+  if (!ctx) return { set() {}, stop() {} };
+  if (!engineNoise) {
+    // its own long noise, so the hiss never audibly repeats
+    engineNoise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 7.3), ctx.sampleRate);
+    const d = engineNoise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const lp = manifest?.loops?.engineLoop, buf = bank.get('engineLoop')?.[0];
+  return engineVoice(ctx, sfxBus, engineNoise, buf && lp ? { buffer: buf, start: lp[0], end: lp[1] } : null);
+}
+
 export const sfx = {
   init,
   play,
   music,
+  shipEngine,
   setMuted(m) { muted = m; if (master) master.gain.value = m ? 0 : 0.9; },
   get muted() { return muted; },
   click() { play('uiClick', { gain: 0.7, drift: 0.02 }) || tone(1400, 0.04, { type: 'triangle', gain: 0.08 }); },

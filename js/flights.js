@@ -46,6 +46,18 @@ function dust(view, x, z, n = 6, size = 1.2) {
   }
 }
 
+// The engine sound rides the ship: every frame it hears the thrust and pod tilt the flight animates and how far
+// away the camera is. It fades in when the engines light and fades out when the flight ends or is skipped.
+function engine(view, sfx, ship) {
+  const voice = sfx.shipEngine?.() || { set() {}, stop() {} };
+  const p = new THREE.Vector3();
+  ship.onTick = () => {
+    ship.root.getWorldPosition(p);
+    voice.set(ship.thrust_k, { tilt: ship.tilt_k, dist: view.camera.position.distanceTo(p) });
+  };
+  return { stop(fade) { ship.onTick = null; voice.stop(fade); } };
+}
+
 // ------------------------------------------------------------ out of the hangar
 export async function flightOut(app) {
   const view = app.view, c = view.carrier;
@@ -67,7 +79,11 @@ export async function flightOut(app) {
   // ramp up, engines to hover, lift off
   app.sfx.door?.(false);
   await tl.step(1.0, (k) => ship.setRamp(1 - ease(k)));
-  app.sfx.engine?.();
+  const eng = engine(view, app.sfx, ship);
+  try { await takeOff(view, ship, tl); } finally { eng.stop(tl.skip ? 0.4 : 1.2); }
+  tl.done();
+}
+async function takeOff(view, ship, tl) {
   cam(view, [8.5, 1.6, 4.5], [0, 2.4, -1.5], 2);
   await tl.step(1.0, (k) => { ship.setTilt(1 - ease(k)); ship.setThrust(0.15 + k * 0.5); });
   let puffed = false;
@@ -82,7 +98,6 @@ export async function flightOut(app) {
   // nose round to the door, engines swing back, and out through the field toward the planet
   cam(view, [8.5, 5.0, -13.5], [0, 2.5, -2], 3);
   await tl.step(0.9, (k) => { ship.setTilt(ease(k)); ship.setThrust(0.85 + k * 0.15); });
-  app.sfx.evac?.();
   const camFrom = view.cine.p.clone(), camTo = new THREE.Vector3(7.5, 3.4, -27);
   await tl.step(3.4, (k) => {
     const e = easeIn(k);
@@ -101,7 +116,6 @@ export async function flightOut(app) {
     view.cine.p.lerpVectors(c0, ship.root.position.clone().add(new THREE.Vector3(5, 6, 16)), ease(Math.min(1, k * 1.6)));
     view.cine.t.lerp(ship.root.position.clone().add(new THREE.Vector3(0, -6, -20)), 0.12);
   });
-  tl.done();
 }
 
 // ------------------------------------------------------------ back into the hangar
@@ -115,8 +129,25 @@ export async function flightIn(app) {
   for (const r of rigs) { r.root.visible = false; r.root.position.set(0, 1.12, SHIP_AT.z + 2.4); }
   ship.setRamp(0); ship.setGear(0); ship.setTilt(1); ship.setThrust(0.9);
   ship.root.position.set(SHIP_AT.x, 9, SHIP_AT.z - 80);
+  await view.precompile?.();
   cam(view, [6.8, 2.2, 10.5], [0, 3.5, -16], 9);
-  app.sfx.engine?.();
+  const eng = engine(view, app.sfx, ship);
+  try { await landing(view, ship, tl); } finally { eng.stop(tl.skip ? 0.4 : 1.6); } // the turbines spool down
+  // ramp down, and the squad walks off to the line
+  app.sfx.door?.(true);
+  cam(view, [0.4, 1.45, 13.5], [0.2, 1.1, 4.5], 2.2);
+  await tl.step(1.1, (k) => ship.setRamp(ease(k)));
+  await Promise.all(rigs.map(async (r, i) => {
+    await tl.wait(i * 0.35);
+    r.root.visible = true;
+    const s = spots[i];
+    await walk(view, r, [[0, 1.12, SHIP_AT.z + 2.4], [0, 1.12, SHIP_AT.z + 4.1], [0, 0.02, 4.8], [s.x, 0, s.z]], 2.2, tl);
+    r.root.position.copy(s);
+    r.targetYaw = Math.atan2(-s.x * 0.6, 9);
+  }));
+  tl.done();
+}
+async function landing(view, ship, tl) {
   // in through the door, slowing, engines swinging down to hover
   await tl.step(3.4, (k) => {
     const e = easeOut(k);
@@ -138,19 +169,6 @@ export async function flightIn(app) {
   });
   ship.root.position.y = SHIP_AT.y;
   await tl.step(0.8, (k) => { ship.setTilt(ease(k)); ship.setThrust(0.12 * (1 - k)); });
-  // ramp down, and the squad walks off to the line
-  app.sfx.door?.(true);
-  cam(view, [0.4, 1.45, 13.5], [0.2, 1.1, 4.5], 2.2);
-  await tl.step(1.1, (k) => ship.setRamp(ease(k)));
-  await Promise.all(rigs.map(async (r, i) => {
-    await tl.wait(i * 0.35);
-    r.root.visible = true;
-    const s = spots[i];
-    await walk(view, r, [[0, 1.12, SHIP_AT.z + 2.4], [0, 1.12, SHIP_AT.z + 4.1], [0, 0.02, 4.8], [s.x, 0, s.z]], 2.2, tl);
-    r.root.position.copy(s);
-    r.targetYaw = Math.atan2(-s.x * 0.6, 9);
-  }));
-  tl.done();
 }
 
 // ------------------------------------------------------------ onto the mission map
@@ -169,6 +187,7 @@ export async function dropIn(view, sfx, squad, show) {
   // it crosses the frame and stops beside the squad, rear door toward them
   const hover = new THREE.Vector3(cx + 5.5, 3.6, cz), from = new THREE.Vector3(cx - 36, 10, cz - 1);
   ship.root.position.copy(from);
+  await view.precompile?.();
   ship.root.rotation.y = -Math.PI / 2;
   view.ships = [...(view.ships || []), ship];
   // watch from inside the map, above the rooftops, looking back at the squad's edge
@@ -178,42 +197,44 @@ export async function dropIn(view, sfx, squad, show) {
   view.cine = { p: eye, t: mid(), speed: 3 };
   view.cineCur = { p: view.cine.p.clone(), t: view.cine.t.clone() };
   view.skyOn(true);
-  sfx.engine?.();
-  await tl.step(2.6, (k) => {
-    const e = easeOut(k);
-    ship.root.position.lerpVectors(from, hover, e);
-    ship.body.rotation.x = 0.18 * (1 - e);
-    ship.setTilt(1 - ease(Math.max(0, (k - 0.4) / 0.6)));
-    view.cine.t.copy(mid());
-  });
-  ship.setRamp(0.55);
-  sfx.door?.(true);
-  // a ring of dust kicked up under the hover
-  for (let i = 0; i < 34; i++) {
-    const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 2;
-    view.puff?.(new THREE.Vector3(hover.x + Math.cos(a) * r, 0.12, hover.z + Math.sin(a) * r), '#9a8f80', 0.6 + Math.random() * 0.9, 1.5, 0.3);
-  }
-  // they drop from the ramp edge to their tiles, one at a time
-  for (const [i, u] of squad.entries()) {
-    await tl.wait(i ? 0.22 : 0.3);
-    show(u);
-    const r = view.rig(u);
-    if (!r) continue;
-    const y0 = 1.6;
-    tl.step(0.32, (k) => { r.root.position.y = y0 * (1 - k * k); if (k >= 1) r.root.position.y = 0; });
-    view.puff?.(new THREE.Vector3(u.x, 0.1, u.y), '#9a958c', 0.8, 1.2, 0.3);
-  }
-  await tl.wait(0.5);
-  sfx.evac?.();
-  ship.setRamp(0);
-  const up = ship.root.position.clone();
-  await tl.step(2.0, (k) => {
-    const e = easeIn(k);
-    ship.root.position.set(up.x + e * 30, up.y + e * 18, up.z - e * 6);
-    ship.setTilt(ease(k));
-    ship.setThrust(0.9 + k * 0.1);
-    ship.body.rotation.x = -0.2 * e;
-  });
+  const eng = engine(view, sfx, ship);
+  try {
+    await tl.step(2.6, (k) => {
+      const e = easeOut(k);
+      ship.root.position.lerpVectors(from, hover, e);
+      ship.body.rotation.x = 0.18 * (1 - e);
+      ship.setTilt(1 - ease(Math.max(0, (k - 0.4) / 0.6)));
+      ship.setThrust(lerp(0.9, 0.7, ease(Math.max(0, (k - 0.45) / 0.55)))); // throttling back into the hover
+      view.cine.t.copy(mid());
+    });
+    ship.setRamp(0.55);
+    sfx.door?.(true);
+    // a ring of dust kicked up under the hover
+    for (let i = 0; i < 34; i++) {
+      const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 2;
+      view.puff?.(new THREE.Vector3(hover.x + Math.cos(a) * r, 0.12, hover.z + Math.sin(a) * r), '#9a8f80', 0.6 + Math.random() * 0.9, 1.5, 0.3);
+    }
+    // they drop from the ramp edge to their tiles, one at a time
+    for (const [i, u] of squad.entries()) {
+      await tl.wait(i ? 0.22 : 0.3);
+      show(u);
+      const r = view.rig(u);
+      if (!r) continue;
+      const y0 = 1.6;
+      tl.step(0.32, (k) => { r.root.position.y = y0 * (1 - k * k); if (k >= 1) r.root.position.y = 0; });
+      view.puff?.(new THREE.Vector3(u.x, 0.1, u.y), '#9a958c', 0.8, 1.2, 0.3);
+    }
+    await tl.wait(0.5);
+    ship.setRamp(0);
+    const up = ship.root.position.clone();
+    await tl.step(2.0, (k) => {
+      const e = easeIn(k);
+      ship.root.position.set(up.x + e * 30, up.y + e * 18, up.z - e * 6);
+      ship.setTilt(ease(k));
+      ship.setThrust(0.8 + k * 0.2);
+      ship.body.rotation.x = -0.2 * e;
+    });
+  } finally { eng.stop(tl.skip ? 0.4 : 0.9); }
   tl.done();
   ship.root.removeFromParent();
   view.ships = (view.ships || []).filter((s) => s !== ship);
