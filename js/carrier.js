@@ -637,7 +637,7 @@ export function buildCarrier(view) {
   const holo = new THREE.Group();
   holo.position.set(8.2, 0, -9.4);
   root.add(holo);
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.25, 0.95, 40), M.dark);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.25, 0.95, 40), new THREE.MeshStandardMaterial({ color: '#4f5866', roughness: 0.45, metalness: 0.6 }));
   base.position.y = 0.475; base.castShadow = base.receiveShadow = true;
   holo.add(base);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.03, 8, 64).rotateX(Math.PI / 2), M.lampTeal);
@@ -698,8 +698,10 @@ export function buildCarrier(view) {
   }
   const wallScreen = (() => {
     const c = canvas(1024, 512), g = c.getContext('2d'), rr = rngOf(9);
-    g.fillStyle = '#04121a'; g.fillRect(0, 0, 1024, 512);
-    g.strokeStyle = 'rgba(90,224,255,.25)'; g.lineWidth = 1;
+    const bg = g.createLinearGradient(0, 0, 0, 512);
+    bg.addColorStop(0, '#12384a'); bg.addColorStop(1, '#0a2433');
+    g.fillStyle = bg; g.fillRect(0, 0, 1024, 512);
+    g.strokeStyle = 'rgba(90,224,255,.32)'; g.lineWidth = 1;
     for (let x = 0; x < 1024; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 512); g.stroke(); }
     for (let y = 0; y < 512; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(1024, y); g.stroke(); }
     g.strokeStyle = '#58e0ff'; g.lineWidth = 2;
@@ -720,6 +722,8 @@ export function buildCarrier(view) {
   b.add(B(3.15, 1.62, 0.08), M.dark, 8.82 + Math.sin(-0.59) * -0.06, 2.65, -12.25 + Math.cos(-0.59) * -0.06, -0.59);
   b.add(B(0.12, 1.9, 0.12), M.dark, 8.82 + Math.sin(-0.59) * -0.1, 0.95, -12.25 + Math.cos(-0.59) * -0.1, -0.59);
   b.add(B(0.2, 2.9, 5.5), M.dark, W / 2 - 0.05, 3.0, -10.2);
+  b.add(B(0.08, 0.07, 9.0), M.lampCool, W / 2 - 0.2, 4.75, -9.5);
+  b.add(B(0.08, 0.07, 9.0), M.lampCool, W / 2 - 0.2, 1.25, -9.5);
   const holoLight = new THREE.PointLight('#58e0ff', 22, 13, 1.5);
   holoLight.position.set(8.2, 2.2, -9.4);
   root.add(holoLight);

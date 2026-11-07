@@ -440,13 +440,13 @@ function armourMat(rim) {
         float seam = (1.0 - smoothstep(0.008, 0.02, min(abs(vArm.y - 0.36), abs(vArm.y - 0.69)))) * step(0.05, ed) * (1.0 - rimSide);
         float wear = smoothstep(0.62, 0.9, gn * 0.8 + (1.0 - smoothstep(0.0, 0.05, ed)) * 0.5 + rimSide * 0.3);
         diffuseColor.rgb *= (1.0 - seam * 0.75) * (0.9 + 0.16 * gn) * mix(1.0, 0.8, (1.0 - smoothstep(0.012, 0.03, ed)) * (1.0 - rimSide));
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.21, 0.23, 0.27), grey);
+        diffuseColor.rgb = mix(diffuseColor.rgb, min(diffuseColor.rgb * 0.55, vec3(0.21, 0.23, 0.27)), grey);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.43, 0.45), wear * 0.75);`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = clamp(roughnessFactor + (gn - 0.5) * 0.35 + seam * 0.3 - wear * 0.12, 0.2, 1.0);')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  float rimF = 1.0 - saturate(dot(normal, normalize(vViewPosition)));\n  totalEmissiveRadiance += uRim * rimF * rimF * rimF;');
   };
-  m.customProgramCacheKey = () => 'armour-plate-5';
+  m.customProgramCacheKey = () => 'armour-plate-6';
   return m;
 }
 
@@ -496,7 +496,7 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
       }
       // the helmet leans to gunmetal, so it never reads as a white ball
       helmMat.userData.uniforms.uArmour.value.set('#43474c').lerp(new THREE.Color(c.armour), 0.15);
-      helmMat.userData.uniforms.uTrim.value.set(c.trim);
+      helmMat.userData.uniforms.uTrim.value.set(c.trim).lerp(new THREE.Color('#43474c'), 0.5);
       helmMat.userData.uniforms.uPattern.value = c.pattern;
       backMat.userData.uniforms.uArmour.value.set('#3a3d42');
       backMat.userData.uniforms.uTrim.value.set(c.trim);

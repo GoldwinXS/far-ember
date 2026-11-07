@@ -206,7 +206,7 @@ export class UI {
     this.toastT = setTimeout(() => this.toastEl.classList.remove('show'), 2600);
   }
   pop(u, text, kind) {
-    const p = this.app.view.unitScreen(u, 0.6);
+    const p = this.app.view.unitScreen(u, 0.25);
     if (!p || p.behind) return;
     if (u.side === 'pale' && u.seen === false) return;
     const el = document.createElement('div');

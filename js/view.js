@@ -52,7 +52,9 @@ export class View {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.02;
     this.flash = new THREE.PointLight('#ffcf8a', 0, 9, 2);
-    this.scene.add(this.hemi, this.sun, this.sun.target, this.flash);
+    // a soft warm fill from the side opposite the sun (no shadows): backlit walls at dusk keep some shape
+    this.fillLight = new THREE.DirectionalLight('#ffb27a', 0);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.flash, this.fillLight, this.fillLight.target);
     this.world = new THREE.Group();
     this.scene.add(this.world);
     // short-lived effects (shots, blasts, puffs) live here, so a mission change clears them with the world
@@ -134,6 +136,7 @@ export class View {
     this.hemi.color.set('#8ea4c8');
     this.hemi.groundColor.set('#262a33');
     this.hemi.intensity = 1.15;
+    this.fillLight.intensity = 0;
     RIM.squad.value.set('#b8ccff').multiplyScalar(0.16);
     this.sun.color.set('#e8eeff');
     this.sun.intensity = 2.2;
@@ -274,6 +277,10 @@ export class View {
     const d = new THREE.Vector3(...L.sunDir).normalize();
     this.sun.position.set(cx + d.x * 40, d.y * 40, cz + d.z * 40);
     this.sun.target.position.set(cx, 0, cz);
+    this.fillLight.position.set(cx - d.x * 40, 14, cz - d.z * 40);
+    this.fillLight.target.position.set(cx, 0, cz);
+    this.fillLight.color.set(key === 'night' ? '#8fa4d8' : '#ffb27a');
+    this.fillLight.intensity = { day: 0.25, dusk: map.biome === 'farm' ? 0.75 : 0.5, night: 0.12, spire: 0.3 }[key] ?? 0.3;
     const sc = this.sun.shadow.camera;
     const ext = map.w * 0.8;
     sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 110;
@@ -523,7 +530,7 @@ export class View {
     for (const side of [0.95, -0.95, 1.35, -1.35]) {
       const p = a.clone().addScaledVector(dir, -2.5).addScaledVector(right, side);
       p.y = 1.75;
-      if (this.camBlocked(p) || this.postInSight(p, b)) continue;
+      if (this.camBlocked(p) || this.postInSight(p, b) || !this.clearView(p, b)) continue;
       this.cine = { p, t: b.clone().setY(1.0) };
       this.skyOn(true);
       return;
@@ -971,7 +978,7 @@ export class View {
       const r = makeRng(s.x * 31 + s.y);
       for (let i = 0; i < 22; i++) {
         if (i >= 14) break;
-        const p = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeLitTex(), color: '#ffffff', transparent: true, depthWrite: false, opacity: 0 }));
+        const p = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex(), color: '#ece8e0', transparent: true, depthWrite: false, opacity: 0 }));
         const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.5;
         p.position.set(Math.cos(a) * d, 0.3 + r() * 1.2, Math.sin(a) * d);
         p.scale.setScalar(1.2 + r() * 1.0);
@@ -1627,7 +1634,7 @@ export class View {
       const L = p.userData.life, k = ((this.time + p.userData.ph * L) % L) / L;
       p.position.y = 0.25 + k * 1.7;
       p.scale.setScalar(p.userData.s0 * (0.7 + k * 0.7));
-      p.material.opacity = 0.42 * Math.sin(k * Math.PI);
+      p.material.opacity = 0.34 * Math.sin(k * Math.PI);
       p.material.rotation += dt * 0.05;
     }
     if (this.carrier && this.hemiGoal) this.hemi.intensity += (this.hemiGoal - this.hemi.intensity) * Math.min(1, dt * 3);
@@ -1660,16 +1667,17 @@ export class View {
     for (const R of this.roofs) {
       const b = R.b;
       const occupied = inside.some((p) => p.x > b.x0 - 0.3 && p.x < b.x0 + b.w - 0.7 && p.z > b.y0 - 0.3 && p.z < b.y0 + b.h - 0.7);
+      const near = close && Math.hypot(b.x0 + b.w / 2 - ref.x, b.y0 + b.h / 2 - ref.z) < 6;
       // under the real gable: eaves low at the sides, the ridge along the long axis
       const S = R.shape, alongX = S && S.x1 - S.x0 >= S.z1 - S.z0, half = S && (alongX ? S.z1 - S.z0 : S.x1 - S.x0) / 2;
       const under = (x, y, z) => x > S.x0 - S.oh && x < S.x1 + S.oh && z > S.z0 - S.oh && z < S.z1 + S.oh
         && y < S.h + S.slope * (half - (alongX ? Math.abs(z - (S.z0 + S.z1) / 2) : Math.abs(x - (S.x0 + S.x1) / 2)));
-      const hides = S && !occupied && !close && seen.some((q) => {
+      const hides = S && !occupied && !near && seen.some((q) => {
         for (let k = 0.04; k < 0.97; k += 0.04) if (under(eye.x + (q.x - eye.x) * k, eye.y + (q.y + 0.9 - eye.y) * k, eye.z + (q.z - eye.z) * k)) return true;
         return false;
       });
       // a roof in the way thins to a ghost; it only goes when someone is inside or the camera is close
-      const target = occupied || close || hides ? 0 : 1;
+      const target = occupied || near || hides ? 0 : 1;
       R.fade += (target - R.fade) * Math.min(1, dt * 6);
       for (const m of R.mats) { m.opacity = R.fade; m.depthWrite = R.fade > 0.95; }
       R.roof.visible = R.fade > 0.02;

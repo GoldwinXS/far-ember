@@ -539,7 +539,7 @@ function buildBuilding(parent, map, b, rng, isNight) {
   const floor = new THREE.Mesh(wbox(x0, x1, 0, 0.03, y0, y1, 1.4), floorM);
   floor.receiveShadow = true;
   parent.add(floor);
-  const capM = plain('#2a2624', { rough: 0.9 });
+  const capM = plain('#4a423c', { rough: 0.9 });
   const c0 = WALL_H - 0.02, c1 = WALL_H + 0.06, e = t + 0.02;
   batch.add(capM, wbox(x0 - e, x1 + e, c0, c1, y0 - e, y0 + e));
   batch.add(capM, wbox(x0 - e, x1 + e, c0, c1, y1 - e, y1 + e));
@@ -714,7 +714,10 @@ function buildCover(parent, o, map, rng, biome) {
       break;
     }
     case 'car': case 'tractor': {
-      const c = place(g, 'covered_car', 0, 0, { fitW: 2.1, rot: (along ? 0 : Math.PI / 2) + (rng() < 0.5 ? Math.PI : 0) + (rng() - 0.5) * 0.12 });
+      // the scan splits into parts: take the biggest (the covered body), not the loose wheel
+      const cv = variants('covered_car'), big = cv.reduce((bi, v, i) => (v.size.x * v.size.y * v.size.z > cv[bi].size.x * cv[bi].size.y * cv[bi].size.z ? i : bi), 0);
+      const c = cv.length ? place(g, 'covered_car', 0, 0, { v: big, fitW: 2.1, rot: (along ? 0 : Math.PI / 2) + (rng() < 0.5 ? Math.PI : 0) + (rng() - 0.5) * 0.12 }) : null;
+      if (c) c.traverse((m) => { if (m.isMesh && /wheel/i.test(m.name)) m.visible = false; });
       if (!c) g.add(new THREE.Mesh(new THREE.BoxGeometry(along ? 0.9 : 1.9, 0.9, along ? 1.9 : 0.9), plain('#555')));
       break;
     }
@@ -1018,6 +1021,22 @@ function dress(parent, map, rng, biome, night, out) {
       head.flood = mast.userData.aim.clone().applyMatrix4(mast.matrixWorld);
       out.lamps.unshift(head);
       n++;
+    }
+  }
+  if (biome === 'yard' && night) {
+    const sx = Math.floor(map.w / 2), sy = map.h - 2;
+    for (const [lx, lz] of [[sx + 3.6, sy - 0.4], [sx - 3.6, sy - 0.4], [sx + 4.6, sy - 2.4]]) {
+      if (!map.inside(Math.round(lx), Math.round(lz)) || map.objAt(Math.round(lx), Math.round(lz))) continue;
+      const dx = Math.sign(sx - lx);
+      const mast = buildFloodMast(night);
+      mast.position.set(lx, 0, lz);
+      mast.rotation.y = Math.atan2(dx, 0);
+      parent.add(mast);
+      mast.updateMatrixWorld(true);
+      const head = mast.userData.head.clone().applyMatrix4(mast.matrixWorld);
+      head.flood = mast.userData.aim.clone().applyMatrix4(mast.matrixWorld);
+      out.lamps.unshift(head);
+      break;
     }
   }
   const clutter = {
