@@ -13,12 +13,12 @@ import { buildCarrier, loadHangar, hangarEnv } from './carrier.js';
 
 // sun: direction (x, y, z), colour, strength. env: sky light strength. exp: exposure. fog: haze colour and range.
 const LIGHTS = {
-  day: { sunDir: [-0.7, 0.62, 0.42], sun: '#fff1de', sunI: 3.2, env: 0.75, exp: 0.95, fog: '#aebccb', fogNear: 30, fogFar: 85, rim: 0.1, hemi: ['#cfe0ff', '#5a5040', 0.25], grade: { sat: 1.05, contrast: 1.06, tint: [1.0, 0.995, 0.985], vig: 0.3, bloom: 0.22 } },
-  dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32 } },
-  night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55 } },
-  spireday: { sunDir: [-0.5, 0.75, -0.4], sun: '#f4f0ff', sunI: 2.8, env: 0.8, exp: 1.22, fog: '#6a7088', fogNear: 26, fogFar: 72, rim: 0.12, hemi: ['#c8c0ff', '#3a3248', 0.45], grade: { sat: 0.95, contrast: 1.08, tint: [0.97, 0.99, 1.03], vig: 0.34, bloom: 0.28 } },
-  spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55 } },
-  spire: { sunDir: [-0.45, 0.42, -0.7], sun: '#ffd4b0', sunI: 2.6, env: 0.6, exp: 0.9, fog: '#3d3647', fogNear: 24, fogFar: 70, rim: 0.18, hemi: ['#c0b8ff', '#201828', 0.25], grade: { sat: 1.0, contrast: 1.1, tint: [0.98, 0.98, 1.04], vig: 0.4, bloom: 0.3 } },
+  day: { sunDir: [-0.7, 0.62, 0.42], sun: '#fff1de', sunI: 3.2, env: 0.75, exp: 0.95, fog: '#aebccb', fogNear: 30, fogFar: 85, rim: 0.1, hemi: ['#cfe0ff', '#5a5040', 0.25], grade: { sat: 1.05, contrast: 1.06, tint: [1.0, 0.995, 0.985], vig: 0.3, bloom: 0.22, lift: 0.035 } },
+  dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32, lift: 0.06 } },
+  night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55, lift: 0.035 } },
+  spireday: { sunDir: [-0.5, 0.75, -0.4], sun: '#f4f0ff', sunI: 2.8, env: 0.8, exp: 1.22, fog: '#6a7088', fogNear: 26, fogFar: 72, rim: 0.12, hemi: ['#c8c0ff', '#3a3248', 0.45], grade: { sat: 0.95, contrast: 1.08, tint: [0.97, 0.99, 1.03], vig: 0.34, bloom: 0.28, lift: 0.045 } },
+  spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55, lift: 0.045 } },
+  spire: { sunDir: [-0.45, 0.42, -0.7], sun: '#ffd4b0', sunI: 2.6, env: 0.6, exp: 0.9, fog: '#3d3647', fogNear: 24, fogFar: 70, rim: 0.18, hemi: ['#c0b8ff', '#201828', 0.25], grade: { sat: 1.0, contrast: 1.1, tint: [0.98, 0.98, 1.04], vig: 0.4, bloom: 0.3, lift: 0.045 } },
 };
 const BLUE = new THREE.Color('#47a8f5'), YELLOW = new THREE.Color('#ff9a5a'), ORANGE = new THREE.Color('#ff7a3d'), GREEN = new THREE.Color('#6fdc7a');
 const v3 = new THREE.Vector3();
@@ -432,6 +432,14 @@ export class View {
       rig.root.add(line, dot);
     }
     rig.phase = Math.random() * 6;
+    // characters take the map's sky-light strength like the world does (at night they were mirrors of a day sky)
+    if (!this.carrier && this.envScale) rig.root.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (m.userData.baseEnv === undefined) m.userData.baseEnv = m.envMapIntensity ?? 1;
+        m.envMapIntensity = m.userData.baseEnv * Math.min(1, this.envScale * 1.3);
+      }
+    });
     rig.root.position.set(u.x, 0, u.y);
     rig.yaw = u.side === 'ember' ? Math.PI : 0;
     rig.targetYaw = rig.yaw;
@@ -520,6 +528,24 @@ export class View {
     this.goal.dist = Math.max(Math.min(this.goal.dist, 16), Math.min(16, 11 + d * 0.6));
   }
   rotate(dir) { this.goal.yaw += (dir * Math.PI) / 4; }
+  // A tactical yaw from which every unit in the group is clear of walls and containers (the current one first).
+  clearYaw(mid, group, dist) {
+    if (!this.map) return this.goal.yaw;
+    const pitch = 0.66 + Math.min(1, Math.max(0, (dist - 9) / 24)) * 0.3, cp = Math.cos(pitch), sp = Math.sin(pitch);
+    for (const k of [0, 1, -1, 2, -2, 3, -3, 4]) {
+      const yaw = this.goal.yaw + (k * Math.PI) / 4;
+      const ex = mid.x + Math.sin(yaw) * cp * dist, ey = sp * dist, ez = mid.y + Math.cos(yaw) * cp * dist;
+      const ok = group.every((u) => {
+        for (let t = 0.05; t < 0.97; t += 0.02) {
+          const x = Math.round(ex + (u.x - ex) * t), z = Math.round(ez + (u.y - ez) * t), y = ey + (1.0 - ey) * t;
+          if (y < 2.3 && !(x === u.x && z === u.y) && this.map.inside(x, z) && this.map.blocksLOS(x, z)) return false;
+        }
+        return true;
+      });
+      if (ok) return yaw;
+    }
+    return this.goal.yaw;
+  }
   // Over-the-shoulder camera for a shot: behind and right of the shooter, looking at the target.
   shoulderCam(from, to) {
     if (this.instant) return;
@@ -1304,7 +1330,7 @@ export class View {
     // smoke column: born inside the fireball, rising 3 to 4 m over about five seconds
     for (let i = 0; i < 20; i++) {
       const a = Math.random() * Math.PI * 2, d = Math.random() * radius * 0.5;
-      this.smoke(new THREE.Vector3(x + Math.cos(a) * d, 0.5 + Math.random() * 0.8, y + Math.sin(a) * d), i % 3 ? '#8a837a' : '#5a5450',
+      this.smoke(new THREE.Vector3(x + Math.cos(a) * d, 0.5 + Math.random() * 0.8, y + Math.sin(a) * d), i % 3 ? '#b8b2a8' : '#8f8880',
         1.1 + Math.random() * 0.9, 5.5 + Math.random() * 1.2, 0.55 + Math.random() * 0.25, new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.15 + Math.random() * 0.2), 0.08 + Math.random() * 0.35);
     }
     // dust thrown out low along the ground
@@ -1350,7 +1376,7 @@ export class View {
       s.position.addScaledVector(v, dt);
       s.position.y += rise * dt * (1 - k * 0.5);
       s.scale.setScalar(size * (0.6 + Math.sqrt(k) * 1.9));
-      s.material.opacity = (k < 0.06 ? k / 0.06 : Math.pow(1 - k, 0.8)) * 0.75;
+      s.material.opacity = (k < 0.06 ? k / 0.06 : Math.pow(1 - k, 0.8)) * 0.55;
       if (k >= 1) { s.removeFromParent(); s.material.dispose(); return false; }
       return true;
     });

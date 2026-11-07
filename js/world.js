@@ -356,10 +356,10 @@ function glowCanvas(map) {
 // ------------------------------------------------------------ buildings
 const STYLE = {
   // colony prefabs: cast panels, ribbed metal and navy plate, low metal roofs, dark frames and orange doors
-  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'metal_plate_02', roofColor: '#9aa2ab', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
-  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'metal_plate_02', roofColor: '#9aa2ab', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
-  blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'metal_plate_02', roofColor: '#a2aab3', floor: 'metal_plate_02', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
-  barn: { wall: 'weathered_planks', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#c05a40' },
+  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'painted_metal_shutter', roofColor: '#aab2bc', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'painted_metal_shutter', roofColor: '#aab2bc', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'painted_metal_shutter', roofColor: '#a0a9b4', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
+  barn: { wall: 'painted_metal_shutter', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#c4644a' },
   shed: { wall: 'concrete_block_wall', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#8a8a84', door: '#5a6066', pitch: 0.5 },
   metal: { wall: 'painted_metal_shutter', wallColor: '#8d98a4', roof: 'rusty_corrugated_iron', roofColor: '#7d8288', floor: 'concrete_floor_02', trim: '#a8822e', door: '#28313c', pitch: 0.45 },
 };
@@ -532,7 +532,7 @@ function buildBuilding(parent, map, b, rng, isNight) {
     batch.add(plinthM, wbox(ax0, ax1, 0, 0.14, az0, az1, 1.2));
   }
   // floor inside
-  const floorM = pbr(st.floor).clone();
+  const floorM = pbr(st.floor, st.floorColor ? { color: st.floorColor } : {}).clone();
   floorM.emissive = new THREE.Color('#ffffff');
   floorM.emissiveMap = floorM.map;
   floorM.emissiveIntensity = 0.18;
@@ -654,7 +654,7 @@ const out_trees = [];
 const VEG = {
   town: { color: '#5f8f84', amount: 0.32, mask: [0, 0, 1, 0], leaf: '#3fa595' },
   farm: { color: '#857c64', amount: 0.35, mask: [1, 1, 0, 1], leaf: '#7258a0' },
-  yard: { color: '#b8913a', amount: 0.5, mask: [0, 0, 1, 0], leaf: '#c08a1c' }, // the port's dirt patches are gold dust
+  yard: { color: '#b8913a', amount: 0.55, mask: [0, 0, 1, 1], leaf: '#c08a1c' }, // the port's pale patches (layers 2 and 3) are gold dust
 };
 const LEAF = { color: { value: new THREE.Color('#ffffff') }, amount: { value: 0 } };
 // (tracked by object: a cloned material copies userData but not its shader hook, so it needs its own)

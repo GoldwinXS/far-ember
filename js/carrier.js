@@ -722,8 +722,8 @@ export function buildCarrier(view) {
   b.add(B(3.15, 1.62, 0.08), M.dark, 8.82 + Math.sin(-0.59) * -0.06, 2.65, -12.25 + Math.cos(-0.59) * -0.06, -0.59);
   b.add(B(0.12, 1.9, 0.12), M.dark, 8.82 + Math.sin(-0.59) * -0.1, 0.95, -12.25 + Math.cos(-0.59) * -0.1, -0.59);
   b.add(B(0.2, 2.9, 5.5), M.dark, W / 2 - 0.05, 3.0, -10.2);
-  b.add(B(0.08, 0.07, 9.0), M.lampCool, W / 2 - 0.2, 4.75, -9.5);
-  b.add(B(0.08, 0.07, 9.0), M.lampCool, W / 2 - 0.2, 1.25, -9.5);
+  b.add(B(0.08, 0.07, 9.0), M.lampCool, W / 2 - 0.2, 6.4, -9.5);
+  b.add(B(0.08, 0.07, 9.0), M.lampCool, W / 2 - 0.2, 0.32, -9.5);
   const holoLight = new THREE.PointLight('#58e0ff', 22, 13, 1.5);
   holoLight.position.set(8.2, 2.2, -9.4);
   root.add(holoLight);

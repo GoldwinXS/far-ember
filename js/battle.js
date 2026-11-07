@@ -658,7 +658,11 @@ export class Battle {
         if (near) this.view.lowCam(near, mid, members);
         // no clear low shot: cut straight to the group from above, pulled back far enough to hold all of them
         const spread = Math.max(...members.map((m) => dist(m, mid)));
-        if (this.view.cine === before) this.view.focus(mid.x, mid.y, { instant: true, dist: Math.max(11.5, Math.min(18, 10 + spread * 1.6)) });
+        if (this.view.cine === before) {
+          const d = Math.max(11.5, Math.min(18, 10 + spread * 1.6));
+          this.view.goal.yaw = this.view.clearYaw(mid, members, d);
+          this.view.focus(mid.x, mid.y, { instant: true, dist: d });
+        }
         this.ui.banner('Enemies spotted', members.map((m) => m.name).join(', '));
         if (near) this.ui.bark?.(near, 'spotted');
         if (this.mission.type !== 'final') this.sfx.music?.('battle');

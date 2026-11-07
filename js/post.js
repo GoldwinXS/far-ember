@@ -8,10 +8,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const Grade = {
-  uniforms: { tDiffuse: { value: null }, uVig: { value: 0.32 }, uSat: { value: 1.06 }, uContrast: { value: 1.05 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uTime: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uVig: { value: 0.32 }, uSat: { value: 1.06 }, uContrast: { value: 1.05 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uTime: { value: 0 }, uLift: { value: 0.03 } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uVig; uniform float uSat; uniform float uContrast; uniform vec3 uTint; uniform float uTime;
+    uniform sampler2D tDiffuse; uniform float uVig; uniform float uSat; uniform float uContrast; uniform vec3 uTint; uniform float uTime; uniform float uLift;
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
@@ -19,7 +19,10 @@ const Grade = {
       vec3 col = c.rgb;
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(l), col, uSat);
-      col = (col - 0.5) * uContrast + 0.5;
+      col = (col - 0.4) * uContrast + 0.4;
+      // lift the shadows (a stand-in for bounce light): strongest at black, gone by mid grey
+      float ls = dot(max(col, 0.0), vec3(0.2126, 0.7152, 0.0722));
+      col += uLift * (1.0 - smoothstep(0.0, 0.4, ls)) * vec3(1.0, 0.97, 0.94);
       col *= uTint;
       vec2 d = vUv - 0.5;
       col *= 1.0 - uVig * smoothstep(0.25, 0.85, length(d * vec2(1.15, 1.0)));
@@ -64,6 +67,7 @@ export class Post {
     if (o.sat !== undefined) u.uSat.value = o.sat;
     if (o.contrast !== undefined) u.uContrast.value = o.contrast;
     if (o.tint) u.uTint.value.set(...o.tint);
+    u.uLift.value = o.lift ?? 0.03;
     if (o.bloom !== undefined) this.bloom.strength = o.bloom;
     if (o.ao !== undefined) this.ao.enabled = o.ao;
   }

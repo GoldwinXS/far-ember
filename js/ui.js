@@ -206,14 +206,14 @@ export class UI {
     this.toastT = setTimeout(() => this.toastEl.classList.remove('show'), 2600);
   }
   pop(u, text, kind) {
-    const p = this.app.view.unitScreen(u, 0.25);
+    const p = this.app.view.unitScreen(u, 0.08);
     if (!p || p.behind) return;
     if (u.side === 'pale' && u.seen === false) return;
     const el = document.createElement('div');
     el.className = `pop ${kind}`;
     el.textContent = text;
     el.style.left = `${p.x}px`;
-    el.style.top = `${p.y - 18}px`;
+    el.style.top = `${p.y + 4}px`;
     this.pops.appendChild(el);
     setTimeout(() => el.remove(), 1700);
     // remembered so a bark never lands on a number

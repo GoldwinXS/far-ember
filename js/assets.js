@@ -115,7 +115,7 @@ export const BIOMES = {
   town: {
     layers: ['asphalt_02', 'concrete_pavement', 'leafy_grass', 'stony_dirt_path'],
     scale: [3.0, 1.6, 2.6, 3.0],
-    tex: ['concrete_panels', 'blue_metal_plate', 'metal_plate_02', 'painted_metal_shutter', 'brick_wall_02', 'wood_floor_worn', 'weathered_planks', 'concrete_floor_02'],
+    tex: ['concrete_panels', 'blue_metal_plate', 'metal_plate_02', 'painted_metal_shutter', 'brick_wall_02', 'wood_floor_worn', 'weathered_planks', 'concrete_floor_02', 'box_profile_metal_sheet'],
     props: ['wooden_crate_01', 'wooden_crate_02', 'wooden_military_crate', 'Barrel_01', 'Barrel_02', 'covered_car', 'shrub_02', 'shrub_04', 'street_lamp_01', 'fire_hydrant',
       'metal_trash_can', 'utility_box_01', 'power_box_01', 'exterior_aircon_unit', 'trashbag', 'cardboard_box_01', 'ammo_box', 'propane_tank', 'water_manhole_cover',
       'grass_medium_01', 'grass_medium_02', 'old_tyre', 'plastic_crate_01', 'cement_bag', 'utility_box_02', 'security_light'],
@@ -124,7 +124,7 @@ export const BIOMES = {
   farm: {
     layers: ['sparse_grass', 'farm_furrows', 'stony_dirt_path', 'leafy_grass'],
     scale: [2.6, 3.2, 3.0, 2.6],
-    tex: ['weathered_planks', 'rusty_corrugated_iron', 'concrete_block_wall', 'wood_planks_dirt', 'dark_rock', 'concrete_floor_02'],
+    tex: ['weathered_planks', 'rusty_corrugated_iron', 'concrete_block_wall', 'wood_planks_dirt', 'dark_rock', 'concrete_floor_02', 'painted_metal_shutter'],
     props: ['wooden_crate_02', 'wooden_barrels_01', 'covered_car', 'boulder_01', 'rock_moss_set_01', 'tree_stump_01', 'dead_tree_trunk', 'propane_tank', 'portable_generator',
       'old_tyre', 'grass_medium_01', 'grass_medium_02', 'shrub_02', 'cement_bag', 'Barrel_02'],
     trees: ['oak', 'pine', 'spruce', 'birch'],
