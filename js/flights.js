@@ -154,6 +154,7 @@ export async function dropIn(view, sfx, squad, show) {
   const ship = buildDropship();
   // no lights of its own here: a new light would make every material on the map recompile
   ship.bayLight.removeFromParent();
+  view.envFit?.(ship.root);
   ship.setRamp(0); ship.setGear(0); ship.setTilt(1); ship.setThrust(0.9);
   view.fxRoot.add(ship.root);
   // it crosses the frame and stops beside the squad, rear door toward them

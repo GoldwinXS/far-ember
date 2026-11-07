@@ -15,7 +15,7 @@ import { buildCarrier, loadHangar, hangarEnv } from './carrier.js';
 const LIGHTS = {
   day: { sunDir: [-0.7, 0.62, 0.42], sun: '#fff1de', sunI: 3.2, env: 0.75, exp: 0.95, fog: '#aebccb', fogNear: 30, fogFar: 85, rim: 0.1, hemi: ['#cfe0ff', '#5a5040', 0.25], grade: { sat: 1.05, contrast: 1.06, tint: [1.0, 0.995, 0.985], vig: 0.3, bloom: 0.22, lift: 0.035 } },
   dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32, lift: 0.06 } },
-  night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55, lift: 0.035 } },
+  night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55, lift: 0.065 } },
   spireday: { sunDir: [-0.5, 0.75, -0.4], sun: '#f4f0ff', sunI: 2.8, env: 0.8, exp: 1.22, fog: '#6a7088', fogNear: 26, fogFar: 72, rim: 0.12, hemi: ['#c8c0ff', '#3a3248', 0.45], grade: { sat: 0.95, contrast: 1.08, tint: [0.97, 0.99, 1.03], vig: 0.34, bloom: 0.28, lift: 0.045 } },
   spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55, lift: 0.045 } },
   spire: { sunDir: [-0.45, 0.42, -0.7], sun: '#ffd4b0', sunI: 2.6, env: 0.6, exp: 0.9, fog: '#3d3647', fogNear: 24, fogFar: 70, rim: 0.18, hemi: ['#c0b8ff', '#201828', 0.25], grade: { sat: 1.0, contrast: 1.1, tint: [0.98, 0.98, 1.04], vig: 0.4, bloom: 0.3, lift: 0.045 } },
@@ -157,6 +157,8 @@ export class View {
     // two high fills along the walls so the plating and catwalks read
     for (const x of [-7, 7]) { const f = new THREE.PointLight('#cfdcff', 40, 24, 1.6); f.position.set(x, 7.5, 2); this.world.add(f); }
     this.carrier = buildCarrier(this);
+    // the hangar's ship shares materials with the drop ship: full reflections back
+    if (this.carrier.ship) this.envFit(this.carrier.ship.root, 1);
     this.world.add(this.carrier.root);
     this.envScale = 0.7;
     this.world.traverse((o) => { if (o.isMesh && o.material && !o.material.isShaderMaterial) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.envMapIntensity = m.userData.baseEnv ?? (m.userData.baseEnv = m.envMapIntensity ?? 1); });
@@ -280,7 +282,7 @@ export class View {
     this.fillLight.position.set(cx - d.x * 40, 14, cz - d.z * 40);
     this.fillLight.target.position.set(cx, 0, cz);
     this.fillLight.color.set(key === 'night' ? '#8fa4d8' : '#ffb27a');
-    this.fillLight.intensity = { day: 0.25, dusk: map.biome === 'farm' ? 0.75 : 0.5, night: 0.12, spire: 0.3 }[key] ?? 0.3;
+    this.fillLight.intensity = { day: 0.25, dusk: map.biome === 'farm' ? 0.75 : 0.5, night: 0.32, spire: 0.3 }[key] ?? 0.3;
     const sc = this.sun.shadow.camera;
     const ext = map.w * 0.8;
     sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 110;
@@ -433,13 +435,7 @@ export class View {
     }
     rig.phase = Math.random() * 6;
     // characters take the map's sky-light strength like the world does (at night they were mirrors of a day sky)
-    if (!this.carrier && this.envScale) rig.root.traverse((o) => {
-      if (!o.isMesh || !o.material) return;
-      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-        if (m.userData.baseEnv === undefined) m.userData.baseEnv = m.envMapIntensity ?? 1;
-        m.envMapIntensity = m.userData.baseEnv * Math.min(1, this.envScale * 1.3);
-      }
-    });
+    if (!this.carrier && this.envScale) this.envFit(rig.root);
     rig.root.position.set(u.x, 0, u.y);
     rig.yaw = u.side === 'ember' ? Math.PI : 0;
     rig.targetYaw = rig.yaw;
@@ -528,6 +524,16 @@ export class View {
     this.goal.dist = Math.max(Math.min(this.goal.dist, 16), Math.min(16, 11 + d * 0.6));
   }
   rotate(dir) { this.goal.yaw += (dir * Math.PI) / 4; }
+  // Scale an object's reflections to this map's sky light (k = 1 restores them, for the hangar).
+  envFit(root, k = Math.min(1, (this.envScale ?? 1) * 1.3)) {
+    root.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (m.userData.baseEnv === undefined) m.userData.baseEnv = m.envMapIntensity ?? 1;
+        m.envMapIntensity = m.userData.baseEnv * k;
+      }
+    });
+  }
   // A tactical yaw from which every unit in the group is clear of walls and containers (the current one first).
   clearYaw(mid, group, dist) {
     if (!this.map) return this.goal.yaw;
@@ -1311,6 +1317,8 @@ export class View {
     // a few additive flames for flicker on top
     for (let i = 0; i < 10; i++) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex(), color: '#ffffff', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+      s.renderOrder = 2;
+      s.userData.noAO = true;
       const a = Math.random() * Math.PI * 2, d = Math.random() * radius * 0.4;
       s.position.set(x + Math.cos(a) * d, 0.25 + Math.random() * 0.5, y + Math.sin(a) * d);
       const size = 0.6 + Math.random() * radius * 0.5, life = 0.25 + Math.random() * 0.25, st = this.time;
@@ -1331,7 +1339,7 @@ export class View {
     for (let i = 0; i < 20; i++) {
       const a = Math.random() * Math.PI * 2, d = Math.random() * radius * 0.5;
       this.smoke(new THREE.Vector3(x + Math.cos(a) * d, 0.5 + Math.random() * 0.8, y + Math.sin(a) * d), i % 3 ? '#b8b2a8' : '#8f8880',
-        1.1 + Math.random() * 0.9, 5.5 + Math.random() * 1.2, 0.55 + Math.random() * 0.25, new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.15 + Math.random() * 0.2), 0.08 + Math.random() * 0.35);
+        1.1 + Math.random() * 0.9, 5.5 + Math.random() * 1.2, 0.55 + Math.random() * 0.25, new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.15 + Math.random() * 0.2), 0.32 + Math.random() * 0.35);
     }
     // dust thrown out low along the ground
     for (let i = 0; i < 12; i++) {
@@ -1361,6 +1369,8 @@ export class View {
   // A shaded smoke puff (lighter on top) that fades in, drifts, rises and thins out. drag slows the drift.
   smoke(pos, color, size, life, rise, drift, delay = 0, drag = 0.4) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeLitTex(), color, transparent: true, depthWrite: false, opacity: 0 }));
+    s.userData.noAO = true;
+    s.renderOrder = 1;
     s.position.copy(pos);
     s.scale.setScalar(size * 0.6);
     s.material.rotation = (Math.random() - 0.5) * 0.4;
@@ -1376,6 +1386,7 @@ export class View {
       s.position.addScaledVector(v, dt);
       s.position.y += rise * dt * (1 - k * 0.5);
       s.scale.setScalar(size * (0.6 + Math.sqrt(k) * 1.9));
+      s.position.y = Math.max(s.position.y, s.scale.x * 0.36);
       s.material.opacity = (k < 0.06 ? k / 0.06 : Math.pow(1 - k, 0.8)) * 0.55;
       if (k >= 1) { s.removeFromParent(); s.material.dispose(); return false; }
       return true;
@@ -1460,6 +1471,8 @@ export class View {
   }
   puff(pos, color, size, life, rise) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex(), color, transparent: true, depthWrite: false, opacity: 0.6 }));
+    s.userData.noAO = true;
+    s.renderOrder = 1;
     s.position.copy(pos);
     s.scale.setScalar(size);
     this.fxRoot.add(s);
@@ -1469,6 +1482,8 @@ export class View {
       s.position.y += vy * dt;
       s.material.rotation += rot * dt;
       s.scale.setScalar(size * (1 + k * 2.2));
+      // keep the quad out of the ground, or the ground clips it along a straight line (square dust)
+      s.position.y = Math.max(s.position.y, s.scale.x * 0.42);
       s.material.opacity = 0.6 * (1 - k);
       if (k >= 1) { s.removeFromParent(); s.material.dispose(); return false; }
       return true;
@@ -1748,6 +1763,13 @@ function smokeTex() {
       g.fillStyle = gr;
       g.fillRect(0, 0, 128, 128);
     }
+    // fade to nothing well inside the square
+    g.globalCompositeOperation = 'destination-in';
+    const edge = g.createRadialGradient(64, 64, 16, 64, 64, 62);
+    edge.addColorStop(0, 'rgba(0,0,0,1)');
+    edge.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = edge;
+    g.fillRect(0, 0, 128, 128);
   }));
 }
 let _fireBook = null;
@@ -1904,6 +1926,12 @@ function smokeLitTex() {
       g.fillStyle = gr;
       g.fillRect(0, 0, 128, 128);
     }
+    g.globalCompositeOperation = 'destination-in';
+    const edge = g.createRadialGradient(64, 64, 18, 64, 64, 62);
+    edge.addColorStop(0, 'rgba(0,0,0,1)');
+    edge.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = edge;
+    g.fillRect(0, 0, 128, 128);
   }));
 }
 function fireTex() {

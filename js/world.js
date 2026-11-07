@@ -356,8 +356,8 @@ function glowCanvas(map) {
 // ------------------------------------------------------------ buildings
 const STYLE = {
   // colony prefabs: cast panels, ribbed metal and navy plate, low metal roofs, dark frames and orange doors
-  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'painted_metal_shutter', roofColor: '#aab2bc', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
-  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'painted_metal_shutter', roofColor: '#aab2bc', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#24303f', pitch: 0.6 },
+  brick: { wall: 'painted_metal_shutter', wallColor: '#c9d0d8', roof: 'painted_metal_shutter', roofColor: '#aab2bc', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#56626e', pitch: 0.6 },
+  plaster: { wall: 'painted_metal_shutter', wallColor: '#e9edf0', roof: 'painted_metal_shutter', roofColor: '#aab2bc', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#56626e', pitch: 0.6 },
   blue: { wall: 'blue_metal_plate', wallColor: '#d4dfec', roof: 'painted_metal_shutter', roofColor: '#a0a9b4', floor: 'wood_floor_worn', floorColor: '#d8c8b0', trim: '#ff7a2e', door: '#d8642a', pitch: 0.6 },
   barn: { wall: 'painted_metal_shutter', roof: 'rusty_corrugated_iron', floor: 'wood_planks_dirt', trim: '#6b4a32', door: '#7a2a20', pitch: 1.5, wallColor: '#c4644a' },
   shed: { wall: 'concrete_block_wall', roof: 'rusty_corrugated_iron', floor: 'concrete_floor_02', trim: '#8a8a84', door: '#5a6066', pitch: 0.5 },
@@ -435,7 +435,7 @@ function gableGeometry(x0, x1, z0, z1, h, rise, alongX, inset) {
 
 function buildBuilding(parent, map, b, rng, isNight) {
   const st = STYLE[b.style] || STYLE.brick;
-  const wallM = pbr(st.wall, { color: st.wallColor || '#ffffff' });
+  const wallM = weather(pbr(st.wall, { color: st.wallColor || '#ffffff' }));
   // colony frames are painted metal with grime from the shutter scan, not flat orange plastic
   const trimM = st.trim === '#ff7a2e' ? pbr('painted_metal_shutter', { color: '#c4733f', rough: 0.85, metal: 0.2 }) : plain(st.trim, { rough: 0.7 });
   const plinthM = pbr('concrete_floor_02', { color: '#b9b5aa' });
@@ -549,16 +549,16 @@ function buildBuilding(parent, map, b, rng, isNight) {
   // roof (fades when someone is inside); tall houses get an upper floor that fades with it
   const upper = b.tall ? 1.85 : 0;
   const rf = roofFor(x0 - t, x1 + t, y0 - t, y1 + t, WALL_H + 0.07 + upper, st.pitch * 0.6, 0.34);
-  const roofMat = pbr(st.roof, { side: THREE.DoubleSide, color: st.roofColor || (b.style === 'barn' ? '#9a8f84' : '#ffffff') }).clone();
+  const roofMat = weather(pbr(st.roof, { side: THREE.DoubleSide, color: st.roofColor || (b.style === 'barn' ? '#9a8f84' : '#ffffff') }).clone());
   roofMat.transparent = true;
-  const gableMat = wallM.clone();
+  const gableMat = weather(wallM.clone());
   gableMat.transparent = true;
   gableMat.side = THREE.DoubleSide;
   const roofMats = [];
   const trimMat = new THREE.MeshStandardMaterial({ color: b.style === 'barn' || b.style === 'shed' || b.style === 'metal' ? '#4a4038' : '#6e3a28', roughness: 0.85, transparent: true });
   const roof = new THREE.Group();
   if (upper) {
-    const upWall = wallM.clone();
+    const upWall = weather(wallM.clone());
     upWall.transparent = true;
     const ub = new Batch();
     const H0 = WALL_H + 0.07, H1 = H0 + upper;
@@ -659,6 +659,30 @@ const VEG = {
 const LEAF = { color: { value: new THREE.Color('#ffffff') }, amount: { value: 0 } };
 // (tracked by object: a cloned material copies userData but not its shader hook, so it needs its own)
 const foliage = new WeakSet();
+const weathered = new WeakSet();
+// Broad grime (about 2 m patches) and soft vertical streaks, from world position, on walls and roofs.
+function weather(m) {
+  if (weathered.has(m)) return m;
+  weathered.add(m);
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWw;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWw = (modelMatrix * vec4(position, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vWw;
+      float wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(wh(i), wh(i + vec2(1.0, 0.0)), f.x), mix(wh(i + vec2(0.0, 1.0)), wh(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        float wg = wn(vWw.xz * 0.5 + vWw.y * 0.17) * 0.6 + wn(vWw.xz * 1.7 - vWw.y * 0.4) * 0.4;
+        float ws = wn(vec2((vWw.x + vWw.z) * 2.6, vWw.y * 0.22));
+        diffuseColor.rgb *= (0.8 + 0.32 * wg) * (1.0 - 0.14 * smoothstep(0.55, 0.92, ws));`);
+  };
+  m.customProgramCacheKey = () => 'weather' + (prev ? '-x' : '');
+  m.needsUpdate = true;
+  return m;
+}
 export function alienFoliage(m) {
   if (foliage.has(m)) return;
   foliage.add(m);

@@ -449,7 +449,8 @@ function armourMat(rim) {
         float ed = min(min(vArm.x, 1.0 - vArm.x), min(vArm.y, 1.0 - vArm.y));
         float gn = an(vPos * 90.0) * 0.75 + an(vPos * 170.0) * 0.25;
         float seam = (1.0 - smoothstep(0.008, 0.02, min(abs(vArm.y - 0.36), abs(vArm.y - 0.69)))) * step(0.05, ed) * (1.0 - rimSide);
-        float wear = smoothstep(0.62, 0.9, gn * 0.8 + (1.0 - smoothstep(0.0, 0.05, ed)) * 0.5 + rimSide * 0.3);
+        float gl = an(vPos * 60.0);
+        float wear = smoothstep(0.66, 0.92, gl * 0.8 + (1.0 - smoothstep(0.0, 0.05, ed)) * 0.45 + rimSide * 0.3);
         diffuseColor.rgb *= (1.0 - seam * 0.75) * (0.9 + 0.16 * gn) * mix(1.0, 0.8, (1.0 - smoothstep(0.012, 0.03, ed)) * (1.0 - rimSide));
         diffuseColor.rgb = mix(diffuseColor.rgb, min(diffuseColor.rgb * 0.55, vec3(0.21, 0.23, 0.27)), grey);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.43, 0.45), wear * 0.75);`)
@@ -457,7 +458,7 @@ function armourMat(rim) {
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  float rimF = 1.0 - saturate(dot(normal, normalize(vViewPosition)));\n  totalEmissiveRadiance += uRim * rimF * rimF * rimF;');
   };
-  m.customProgramCacheKey = () => 'armour-plate-7';
+  m.customProgramCacheKey = () => 'armour-plate-8';
   return m;
 }
 
@@ -483,7 +484,7 @@ export function dress(model, fit, cls, kit, rim, P = 'mixamorig') {
     put(fit.helmet.strip, stripMat, 'Head').castShadow = false;
     put(fit.helmet.band, visorMat, 'Head');
     put(fit.helmet.bandSlit, stripMat, 'Head').castShadow = false;
-    crest = put(fit.helmet.crest, helmMat, 'Head');
+    crest = put(fit.helmet.crest, new THREE.MeshStandardMaterial({ color: '#3a3e43', roughness: 0.55, metalness: 0.3 }), 'Head');
     const gear = new THREE.MeshStandardMaterial({ color: '#1e2126', roughness: 0.4, metalness: 0.7 });
     spotter = put(fit.helmet.spotter, gear, 'Head');
     put(fit.helmet.aerial, gear, 'Head');

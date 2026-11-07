@@ -220,6 +220,8 @@ export class UI {
     const now = performance.now();
     this.popsAt = (this.popsAt || []).filter((q) => q.t > now - 1700);
     this.popsAt.push({ x: p.x, y: p.y - 18, t: now });
+    // the camera may move while it shows: keep it on its own unit
+    (this.popsLive ||= []).push({ el, u, until: now + 1700 });
   }
   // A soldier calls something out: a short line in a tag over their head, at most one every few seconds each.
   bark(u, kind, vars) {
@@ -261,6 +263,14 @@ export class UI {
   frame() {
     const b = this.b;
     if (!b) return;
+    if (this.popsLive && this.popsLive.length) {
+      const now = performance.now();
+      this.popsLive = this.popsLive.filter((q) => q.until > now && q.el.isConnected);
+      for (const q of this.popsLive) {
+        const p = this.app.view.unitScreen(q.u, 0.08);
+        if (p && !p.behind) { q.el.style.left = `${p.x}px`; q.el.style.top = `${p.y + 4}px`; }
+      }
+    }
     const seen = new Set();
     for (const u of b.units) {
       if (!u.alive || !u.onMap) continue;
