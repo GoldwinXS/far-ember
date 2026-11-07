@@ -677,7 +677,7 @@ function weather(m) {
       .replace('#include <map_fragment>', `#include <map_fragment>
         float wg = wn(vWw.xz * 0.5 + vWw.y * 0.17) * 0.6 + wn(vWw.xz * 1.7 - vWw.y * 0.4) * 0.4;
         float ws = wn(vec2((vWw.x + vWw.z) * 2.6, vWw.y * 0.22));
-        diffuseColor.rgb *= (0.8 + 0.32 * wg) * (1.0 - 0.14 * smoothstep(0.55, 0.92, ws));`);
+        diffuseColor.rgb *= (0.66 + 0.55 * wg) * (1.0 - 0.28 * smoothstep(0.58, 0.9, ws)) * mix(0.7, 1.0, smoothstep(0.0, 0.55, vWw.y));`);
   };
   m.customProgramCacheKey = () => 'weather' + (prev ? '-x' : '');
   m.needsUpdate = true;

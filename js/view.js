@@ -14,7 +14,7 @@ import { buildCarrier, loadHangar, hangarEnv } from './carrier.js';
 // sun: direction (x, y, z), colour, strength. env: sky light strength. exp: exposure. fog: haze colour and range.
 const LIGHTS = {
   day: { sunDir: [-0.7, 0.62, 0.42], sun: '#fff1de', sunI: 3.2, env: 0.75, exp: 0.95, fog: '#aebccb', fogNear: 30, fogFar: 85, rim: 0.1, hemi: ['#cfe0ff', '#5a5040', 0.25], grade: { sat: 1.05, contrast: 1.06, tint: [1.0, 0.995, 0.985], vig: 0.3, bloom: 0.22, lift: 0.035 } },
-  dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32, lift: 0.06 } },
+  dusk: { sunDir: [0.85, 0.32, -0.45], sun: '#ffc08a', sunI: 2.9, env: 0.6, exp: 1.0, fog: '#8c8078', fogNear: 26, fogFar: 75, rim: 0.18, hemi: ['#56628a', '#4a3c30', 0.45], grade: { sat: 1.04, contrast: 1.08, tint: [1.02, 0.99, 0.97], vig: 0.36, bloom: 0.32, lift: 0.045 } },
   night: { sunDir: [0.45, 0.7, 0.55], sun: '#a8bcff', sunI: 0.75, env: 0.42, exp: 0.98, fog: '#131a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a74a8', '#161a22', 0.32], grade: { sat: 0.92, contrast: 1.1, tint: [0.94, 0.98, 1.05], vig: 0.42, bloom: 0.55, lift: 0.065 } },
   spireday: { sunDir: [-0.5, 0.75, -0.4], sun: '#f4f0ff', sunI: 2.8, env: 0.8, exp: 1.22, fog: '#6a7088', fogNear: 26, fogFar: 72, rim: 0.12, hemi: ['#c8c0ff', '#3a3248', 0.45], grade: { sat: 0.95, contrast: 1.08, tint: [0.97, 0.99, 1.03], vig: 0.34, bloom: 0.28, lift: 0.045 } },
   spirenight: { sunDir: [0.3, 0.8, 0.5], sun: '#8fa8ff', sunI: 0.8, env: 0.5, exp: 0.95, fog: '#141a26', fogNear: 14, fogFar: 46, rim: 0.32, hemi: ['#5a70a8', '#181a24', 0.36], grade: { sat: 0.95, contrast: 1.12, tint: [0.93, 0.98, 1.06], vig: 0.44, bloom: 0.55, lift: 0.045 } },
@@ -132,7 +132,7 @@ export class View {
     this.scene.background = new THREE.Color('#020309');
     this.scene.fog = new THREE.Fog('#0b1220', 40, 150);
     this.fogColor = null;
-    this.light = { grade: { sat: 1.06, contrast: 1.08, tint: [0.98, 1.0, 1.04], vig: 0.4, bloom: 0.28 } };
+    this.light = { grade: { sat: 1.06, contrast: 1.08, tint: [0.98, 1.0, 1.04], vig: 0.4, bloom: 0.28, lift: 0.03 } };
     this.hemi.color.set('#8ea4c8');
     this.hemi.groundColor.set('#262a33');
     this.hemi.intensity = 1.15;
@@ -1316,7 +1316,7 @@ export class View {
     }
     // a few additive flames for flicker on top
     for (let i = 0; i < 10; i++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex(), color: '#ffffff', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex(), color: '#ffb070', blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
       s.renderOrder = 2;
       s.userData.noAO = true;
       const a = Math.random() * Math.PI * 2, d = Math.random() * radius * 0.4;
@@ -1387,7 +1387,7 @@ export class View {
       s.position.y += rise * dt * (1 - k * 0.5);
       s.scale.setScalar(size * (0.6 + Math.sqrt(k) * 1.9));
       s.position.y = Math.max(s.position.y, s.scale.x * 0.36);
-      s.material.opacity = (k < 0.06 ? k / 0.06 : Math.pow(1 - k, 0.8)) * 0.55;
+      s.material.opacity = (k < 0.06 ? k / 0.06 : Math.pow(1 - k, 0.8)) * 0.42;
       if (k >= 1) { s.removeFromParent(); s.material.dispose(); return false; }
       return true;
     });
@@ -1675,7 +1675,7 @@ export class View {
       const L = p.userData.life, k = ((this.time + p.userData.ph * L) % L) / L;
       p.position.y = 0.25 + k * 1.7;
       p.scale.setScalar(p.userData.s0 * (0.7 + k * 0.7));
-      p.material.opacity = 0.34 * Math.sin(k * Math.PI);
+      p.material.opacity = 0.24 * Math.sin(k * Math.PI);
       p.material.rotation += dt * 0.05;
     }
     if (this.carrier && this.hemiGoal) this.hemi.intensity += (this.hemiGoal - this.hemi.intensity) * Math.min(1, dt * 3);

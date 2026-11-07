@@ -442,23 +442,26 @@ function armourMat(rim) {
                      mix(mix(ah(i + vec3(0,0,1)), ah(i + vec3(1,0,1)), f.x), mix(ah(i + vec3(0,1,1)), ah(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         // x: 0 plain, 1 trim edge, 2 rim side, -1 the helmet's grey band (negative, so the band's edge never passes through trim)
-        float grey = smoothstep(-0.3, -0.7, vPaint.x), edge = clamp(vPaint.x, 0.0, 1.0), rimSide = step(1.5, vPaint.x);
+        float pw = fwidth(vPaint.x) + 0.02;
+        float grey = smoothstep(-0.3, -0.7, vPaint.x), edge = clamp(vPaint.x, 0.0, 1.0), rimSide = smoothstep(1.5 - pw, 1.5 + pw, vPaint.x);
         float tm = (uPattern < 0.5 ? edge : (uPattern < 1.5 ? vPaint.y : 0.0)) * (1.0 - grey);
         diffuseColor.rgb = mix(uArmour, uTrim, tm) * mix(1.0, 0.7, rimSide);
         // panel seams across the plate, a darker chamfer at the edge, grime, and paint worn to metal at edges and rims
         float ed = min(min(vArm.x, 1.0 - vArm.x), min(vArm.y, 1.0 - vArm.y));
         float gn = an(vPos * 90.0) * 0.75 + an(vPos * 170.0) * 0.25;
-        float seam = (1.0 - smoothstep(0.008, 0.02, min(abs(vArm.y - 0.36), abs(vArm.y - 0.69)))) * step(0.05, ed) * (1.0 - rimSide);
+        float aw = fwidth(vArm.y) + fwidth(vArm.x);
+        float fine = 1.0 - smoothstep(0.012, 0.05, aw); // fine detail fades out when it would be smaller than a pixel
+        float seam = (1.0 - smoothstep(0.008, 0.02 + aw, min(abs(vArm.y - 0.36), abs(vArm.y - 0.69)))) * smoothstep(0.04, 0.06, ed) * (1.0 - rimSide) * fine;
         float gl = an(vPos * 60.0);
-        float wear = smoothstep(0.66, 0.92, gl * 0.8 + (1.0 - smoothstep(0.0, 0.05, ed)) * 0.45 + rimSide * 0.3);
-        diffuseColor.rgb *= (1.0 - seam * 0.75) * (0.9 + 0.16 * gn) * mix(1.0, 0.8, (1.0 - smoothstep(0.012, 0.03, ed)) * (1.0 - rimSide));
+        float wear = smoothstep(0.72, 0.95, gl * 0.8 + (1.0 - smoothstep(0.0, 0.05, ed)) * 0.4 + rimSide * 0.25) * fine;
+        diffuseColor.rgb *= (1.0 - seam * 0.6) * (0.9 + 0.16 * gn) * mix(1.0, 0.82, (1.0 - smoothstep(0.012, 0.03 + aw, ed)) * (1.0 - rimSide) * fine);
         diffuseColor.rgb = mix(diffuseColor.rgb, min(diffuseColor.rgb * 0.55, vec3(0.21, 0.23, 0.27)), grey);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.43, 0.45), wear * 0.75);`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.43, 0.45), wear * 0.4);`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = clamp(roughnessFactor + (gn - 0.5) * 0.35 + seam * 0.3 - wear * 0.12, 0.2, 1.0);')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.4);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  float rimF = 1.0 - saturate(dot(normal, normalize(vViewPosition)));\n  totalEmissiveRadiance += uRim * rimF * rimF * rimF;');
   };
-  m.customProgramCacheKey = () => 'armour-plate-8';
+  m.customProgramCacheKey = () => 'armour-plate-9';
   return m;
 }
 

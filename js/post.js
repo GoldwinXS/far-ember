@@ -67,7 +67,7 @@ export class Post {
     if (o.sat !== undefined) u.uSat.value = o.sat;
     if (o.contrast !== undefined) u.uContrast.value = o.contrast;
     if (o.tint) u.uTint.value.set(...o.tint);
-    u.uLift.value = o.lift ?? 0.03;
+    if (o.lift !== undefined) u.uLift.value = o.lift;
     if (o.bloom !== undefined) this.bloom.strength = o.bloom;
     if (o.ao !== undefined) this.ao.enabled = o.ao;
   }
